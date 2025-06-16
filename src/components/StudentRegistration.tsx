@@ -10,6 +10,9 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from '@supabase/supabase-js';
 import { Upload, FileText, CheckCircle, Clock, XCircle } from "lucide-react";
+import type { Database } from "@/integrations/supabase/types";
+
+type RegistrationStatus = Database['public']['Enums']['registration_status'];
 
 interface StudentRegistrationProps {
   user: User;
@@ -106,7 +109,7 @@ const StudentRegistration = ({ user }: StudentRegistrationProps) => {
         id_number: formData.id_number,
         photo_url: photoUrl,
         additional_reports: formData.additional_reports,
-        status: 'pending'
+        status: 'pending' as RegistrationStatus
       };
 
       if (existingRegistration && existingRegistration.status === 'pending') {
@@ -122,7 +125,7 @@ const StudentRegistration = ({ user }: StudentRegistrationProps) => {
         // Create new registration
         const { error } = await supabase
           .from('student_registrations')
-          .insert([registrationData]);
+          .insert(registrationData);
 
         if (error) throw error;
         setSuccess('Registration submitted successfully! Awaiting review.');
