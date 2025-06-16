@@ -184,7 +184,7 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
         
         <div className="space-y-4">
           {announcements.filter(ann => ann.isActive).map((announcement) => {
-            const Type Icon = getTypeIcon(announcement.type);
+            const TypeIcon = getTypeIcon(announcement.type);
             return (
               <Card key={announcement.id} className={`border-l-4 ${
                 announcement.type === 'warning' ? 'border-l-orange-500 bg-orange-50' :
