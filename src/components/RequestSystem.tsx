@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -49,27 +48,57 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
       const user = await supabase.auth.getUser();
       if (!user.data.user) return;
 
-      let query = supabase.from('requests').select(`
-        *,
-        profiles!requests_user_id_fkey(email),
-        assigned_profiles:profiles!requests_assigned_to_fkey(email)
-      `);
+      // First, get the base requests data
+      let requestsQuery = supabase.from('requests').select('*');
 
       if (userRole === 'student') {
-        query = query.eq('user_id', user.data.user.id);
+        requestsQuery = requestsQuery.eq('user_id', user.data.user.id);
       }
 
-      const { data, error } = await query.order('created_at', { ascending: false });
+      const { data: requestsData, error: requestsError } = await requestsQuery.order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (requestsError) throw requestsError;
 
-      setRequests(data || []);
+      // Get user profiles for request creators and assignees
+      const userIds = new Set<string>();
+      requestsData?.forEach(request => {
+        if (request.user_id) userIds.add(request.user_id);
+        if (request.assigned_to) userIds.add(request.assigned_to);
+      });
+
+      let profilesData: any[] = [];
+      if (userIds.size > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, email')
+          .in('id', Array.from(userIds));
+
+        if (profilesError) {
+          console.error('Error fetching profiles:', profilesError);
+        } else {
+          profilesData = profiles || [];
+        }
+      }
+
+      // Combine the data
+      const processedRequests = requestsData?.map(request => {
+        const userProfile = profilesData.find(p => p.id === request.user_id);
+        const assignedProfile = profilesData.find(p => p.id === request.assigned_to);
+        
+        return {
+          ...request,
+          profiles: userProfile ? { email: userProfile.email } : null,
+          assigned_profiles: assignedProfile ? { email: assignedProfile.email } : null
+        };
+      }) || [];
+
+      setRequests(processedRequests);
       
       // Calculate stats
-      const total = data?.length || 0;
-      const pending = data?.filter(r => r.status === 'Pending').length || 0;
-      const completed = data?.filter(r => r.status === 'Completed').length || 0;
-      const highPriority = data?.filter(r => r.priority === 'High').length || 0;
+      const total = processedRequests.length;
+      const pending = processedRequests.filter(r => r.status === 'Pending').length;
+      const completed = processedRequests.filter(r => r.status === 'Completed').length;
+      const highPriority = processedRequests.filter(r => r.priority === 'High').length;
       
       setStats({ total, pending, completed, highPriority });
     } catch (error: any) {
