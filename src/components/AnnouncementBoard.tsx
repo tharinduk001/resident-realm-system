@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { MessageSquare, Plus, Calendar, AlertTriangle, Info, Search, Filter } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -40,18 +39,46 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
 
   const fetchAnnouncements = async () => {
     try {
-      const { data, error } = await supabase
+      // First, get the base announcements data
+      const { data: announcementsData, error: announcementsError } = await supabase
         .from('announcements')
-        .select(`
-          *,
-          profiles!announcements_created_by_fkey(email)
-        `)
+        .select('*')
         .eq('is_active', true)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (announcementsError) throw announcementsError;
 
-      setAnnouncements(data || []);
+      // Get user profiles for announcement creators
+      const userIds = new Set<string>();
+      announcementsData?.forEach(announcement => {
+        if (announcement.created_by) userIds.add(announcement.created_by);
+      });
+
+      let profilesData: any[] = [];
+      if (userIds.size > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, email')
+          .in('id', Array.from(userIds));
+
+        if (profilesError) {
+          console.error('Error fetching profiles:', profilesError);
+        } else {
+          profilesData = profiles || [];
+        }
+      }
+
+      // Combine the data
+      const processedAnnouncements = announcementsData?.map(announcement => {
+        const userProfile = profilesData.find(p => p.id === announcement.created_by);
+        
+        return {
+          ...announcement,
+          profiles: userProfile ? { email: userProfile.email } : null
+        };
+      }) || [];
+
+      setAnnouncements(processedAnnouncements);
     } catch (error: any) {
       console.error('Error fetching announcements:', error);
       toast({

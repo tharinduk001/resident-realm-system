@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +9,7 @@ import { User, Session } from '@supabase/supabase-js';
 import Navigation from "@/components/Navigation";
 import StudentDashboard from "@/components/StudentDashboard";
 import StaffDashboard from "@/components/StaffDashboard";
+import AdminDashboard from "@/components/AdminDashboard";
 import RoomManagement from "@/components/RoomManagement";
 import RequestSystem from "@/components/RequestSystem";
 import AnnouncementBoard from "@/components/AnnouncementBoard";
