@@ -351,9 +351,7 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
                 <Input
                   placeholder="Search requests..."
                   value={searchTerm}
-                  onChange={(e) => setSearch
-
-(e.target.value)}
+                  onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
                 />
               </div>

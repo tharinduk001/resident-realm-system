@@ -35,27 +35,48 @@ const RoomManagement = () => {
 
   const fetchRooms = async () => {
     try {
-      const { data: roomsData, error } = await supabase
+      // First, get all rooms
+      const { data: roomsData, error: roomsError } = await supabase
         .from('rooms')
-        .select(`
-          *,
-          room_assignments!inner(
-            student_id,
-            is_active,
-            profiles(email)
-          )
-        `)
+        .select('*')
         .order('room_number');
 
-      if (error) throw error;
+      if (roomsError) throw roomsError;
 
-      // Process rooms data to include student information
+      // Then get room assignments separately
+      const { data: assignmentsData, error: assignmentsError } = await supabase
+        .from('room_assignments')
+        .select('room_id, student_id, is_active')
+        .eq('is_active', true);
+
+      if (assignmentsError) throw assignmentsError;
+
+      // Get profiles for assigned students
+      const studentIds = assignmentsData?.map(a => a.student_id).filter(Boolean) || [];
+      let profilesData: any[] = [];
+      
+      if (studentIds.length > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, email')
+          .in('id', studentIds);
+
+        if (profilesError) {
+          console.error('Error fetching profiles:', profilesError);
+        } else {
+          profilesData = profiles || [];
+        }
+      }
+
+      // Combine the data
       const processedRooms = roomsData?.map(room => {
-        const activeAssignment = room.room_assignments?.find((assignment: any) => assignment.is_active);
+        const assignment = assignmentsData?.find(a => a.room_id === room.id);
+        const profile = assignment ? profilesData.find(p => p.id === assignment.student_id) : null;
+        
         return {
           ...room,
-          student: activeAssignment?.profiles?.email || null,
-          student_id: activeAssignment?.student_id || null
+          student: profile?.email || null,
+          student_id: assignment?.student_id || null
         };
       }) || [];
 
@@ -75,27 +96,40 @@ const RoomManagement = () => {
 
   const fetchAvailableStudents = async () => {
     try {
-      // Get students who don't have active room assignments
-      const { data: studentsData, error } = await supabase
+      // Get all student profiles
+      const { data: studentsData, error: studentsError } = await supabase
         .from('profiles')
-        .select(`
-          id,
-          email,
-          student_registrations(status)
-        `)
-        .eq('role', 'student')
-        .not('id', 'in', `(
-          SELECT student_id FROM room_assignments WHERE is_active = true
-        )`);
+        .select('id, email')
+        .eq('role', 'student');
 
-      if (error) throw error;
+      if (studentsError) throw studentsError;
 
-      // Filter only approved students
-      const approvedStudents = studentsData?.filter(student => 
-        student.student_registrations?.some((reg: any) => reg.status === 'approved')
+      // Get active room assignments
+      const { data: assignmentsData, error: assignmentsError } = await supabase
+        .from('room_assignments')
+        .select('student_id')
+        .eq('is_active', true);
+
+      if (assignmentsError) throw assignmentsError;
+
+      // Get approved student registrations
+      const { data: registrationsData, error: registrationsError } = await supabase
+        .from('student_registrations')
+        .select('user_id')
+        .eq('status', 'approved');
+
+      if (registrationsError) throw registrationsError;
+
+      const assignedStudentIds = assignmentsData?.map(a => a.student_id) || [];
+      const approvedStudentIds = registrationsData?.map(r => r.user_id) || [];
+
+      // Filter students who are approved but not assigned to rooms
+      const availableStudents = studentsData?.filter(student => 
+        approvedStudentIds.includes(student.id) && 
+        !assignedStudentIds.includes(student.id)
       ) || [];
 
-      setAvailableStudents(approvedStudents);
+      setAvailableStudents(availableStudents);
     } catch (error: any) {
       console.error('Error fetching available students:', error);
     }
@@ -317,7 +351,7 @@ const RoomManagement = () => {
                 <Input
                   placeholder="Search by room number or student email..."
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e)setSearchTerm(e.target.value)}
                   className="pl-10"
                 />
               </div>
