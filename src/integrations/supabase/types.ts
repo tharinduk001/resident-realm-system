@@ -9,6 +9,74 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      announcements: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          id: string
+          is_active: boolean | null
+          message: string
+          title: string
+          type: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          message: string
+          title: string
+          type?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          message?: string
+          title?: string
+          type?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      furniture_items: {
+        Row: {
+          condition: string | null
+          created_at: string | null
+          id: string
+          item_name: string
+          room_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          condition?: string | null
+          created_at?: string | null
+          id?: string
+          item_name: string
+          room_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          condition?: string | null
+          created_at?: string | null
+          id?: string
+          item_name?: string
+          room_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "furniture_items_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string | null
@@ -29,6 +97,122 @@ export type Database = {
           email?: string | null
           id?: string
           role?: Database["public"]["Enums"]["app_role"] | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      requests: {
+        Row: {
+          assigned_to: string | null
+          created_at: string | null
+          description: string
+          id: string
+          priority: string | null
+          room_number: string | null
+          status: string | null
+          type: string
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          assigned_to?: string | null
+          created_at?: string | null
+          description: string
+          id?: string
+          priority?: string | null
+          room_number?: string | null
+          status?: string | null
+          type: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          assigned_to?: string | null
+          created_at?: string | null
+          description?: string
+          id?: string
+          priority?: string | null
+          room_number?: string | null
+          status?: string | null
+          type?: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      room_assignments: {
+        Row: {
+          assigned_at: string | null
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          room_id: string | null
+          student_id: string | null
+          vacated_at: string | null
+        }
+        Insert: {
+          assigned_at?: string | null
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          room_id?: string | null
+          student_id?: string | null
+          vacated_at?: string | null
+        }
+        Update: {
+          assigned_at?: string | null
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          room_id?: string | null
+          student_id?: string | null
+          vacated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_assignments_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rooms: {
+        Row: {
+          condition: string | null
+          created_at: string | null
+          floor: string
+          id: string
+          last_inspection: string | null
+          room_number: string
+          room_size: string | null
+          room_type: string | null
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          condition?: string | null
+          created_at?: string | null
+          floor: string
+          id?: string
+          last_inspection?: string | null
+          room_number: string
+          room_size?: string | null
+          room_type?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          condition?: string | null
+          created_at?: string | null
+          floor?: string
+          id?: string
+          last_inspection?: string | null
+          room_number?: string
+          room_size?: string | null
+          room_type?: string | null
+          status?: string | null
           updated_at?: string | null
         }
         Relationships: []

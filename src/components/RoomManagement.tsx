@@ -1,37 +1,266 @@
-import { useState } from 'react';
+
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Home, Users, Search, Filter } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Home, Users, Search, Filter, Plus, UserPlus } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 const RoomManagement = () => {
+  const [rooms, setRooms] = useState<any[]>([]);
+  const [filteredRooms, setFilteredRooms] = useState<any[]>([]);
   const [selectedFloor, setSelectedFloor] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [floorStats, setFloorStats] = useState<any>({});
+  const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [selectedRoom, setSelectedRoom] = useState<any>(null);
+  const [availableStudents, setAvailableStudents] = useState<any[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState('');
+  const { toast } = useToast();
 
-  const rooms = [
-    { id: 'G-001', floor: 'Ground', student: 'John Doe', status: 'Occupied', condition: 'Good', lastInspection: '2024-01-10' },
-    { id: 'G-002', floor: 'Ground', student: null, status: 'Vacant', condition: 'Good', lastInspection: '2024-01-08' },
-    { id: 'B-201', floor: '2nd', student: 'Alex Johnson', status: 'Occupied', condition: 'Fair', lastInspection: '2024-01-12' },
-    { id: 'B-202', floor: '2nd', student: 'Sarah Wilson', status: 'Occupied', condition: 'Good', lastInspection: '2024-01-11' },
-    { id: 'C-301', floor: '3rd', student: 'Mike Davis', status: 'Occupied', condition: 'Poor', lastInspection: '2024-01-09' },
-    { id: 'D-401', floor: '4th', student: null, status: 'Maintenance', condition: 'Under Repair', lastInspection: '2024-01-07' },
-  ];
+  useEffect(() => {
+    fetchRooms();
+    fetchAvailableStudents();
+  }, []);
 
-  const floorStats = {
-    'Ground': { total: 15, occupied: 13, vacant: 2, maintenance: 0 },
-    '2nd': { total: 28, occupied: 25, vacant: 2, maintenance: 1 },
-    '3rd': { total: 28, occupied: 24, vacant: 3, maintenance: 1 },
-    '4th': { total: 27, occupied: 23, vacant: 3, maintenance: 1 },
+  useEffect(() => {
+    filterRooms();
+  }, [rooms, selectedFloor, searchTerm]);
+
+  const fetchRooms = async () => {
+    try {
+      const { data: roomsData, error } = await supabase
+        .from('rooms')
+        .select(`
+          *,
+          room_assignments!inner(
+            student_id,
+            is_active,
+            profiles(email)
+          )
+        `)
+        .order('room_number');
+
+      if (error) throw error;
+
+      // Process rooms data to include student information
+      const processedRooms = roomsData?.map(room => {
+        const activeAssignment = room.room_assignments?.find((assignment: any) => assignment.is_active);
+        return {
+          ...room,
+          student: activeAssignment?.profiles?.email || null,
+          student_id: activeAssignment?.student_id || null
+        };
+      }) || [];
+
+      setRooms(processedRooms);
+      calculateFloorStats(processedRooms);
+    } catch (error: any) {
+      console.error('Error fetching rooms:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load rooms data",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const filteredRooms = rooms.filter(room => {
-    const matchesFloor = selectedFloor === 'all' || room.floor === selectedFloor;
-    const matchesSearch = room.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (room.student && room.student.toLowerCase().includes(searchTerm.toLowerCase()));
-    return matchesFloor && matchesSearch;
-  });
+  const fetchAvailableStudents = async () => {
+    try {
+      // Get students who don't have active room assignments
+      const { data: studentsData, error } = await supabase
+        .from('profiles')
+        .select(`
+          id,
+          email,
+          student_registrations(status)
+        `)
+        .eq('role', 'student')
+        .not('id', 'in', `(
+          SELECT student_id FROM room_assignments WHERE is_active = true
+        )`);
+
+      if (error) throw error;
+
+      // Filter only approved students
+      const approvedStudents = studentsData?.filter(student => 
+        student.student_registrations?.some((reg: any) => reg.status === 'approved')
+      ) || [];
+
+      setAvailableStudents(approvedStudents);
+    } catch (error: any) {
+      console.error('Error fetching available students:', error);
+    }
+  };
+
+  const calculateFloorStats = (roomsData: any[]) => {
+    const stats: any = {};
+    
+    roomsData.forEach(room => {
+      if (!stats[room.floor]) {
+        stats[room.floor] = { total: 0, occupied: 0, vacant: 0, maintenance: 0 };
+      }
+      
+      stats[room.floor].total++;
+      
+      if (room.status === 'Occupied') {
+        stats[room.floor].occupied++;
+      } else if (room.status === 'Vacant') {
+        stats[room.floor].vacant++;
+      } else if (room.status === 'Maintenance') {
+        stats[room.floor].maintenance++;
+      }
+    });
+    
+    setFloorStats(stats);
+  };
+
+  const filterRooms = () => {
+    let filtered = rooms;
+
+    if (selectedFloor !== 'all') {
+      filtered = filtered.filter(room => room.floor === selectedFloor);
+    }
+
+    if (searchTerm) {
+      filtered = filtered.filter(room =>
+        room.room_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (room.student && room.student.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
+    }
+
+    setFilteredRooms(filtered);
+  };
+
+  const handleAssignStudent = async () => {
+    if (!selectedStudent || !selectedRoom) {
+      toast({
+        title: "Error",
+        description: "Please select a student",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      // Create room assignment
+      const { error: assignmentError } = await supabase
+        .from('room_assignments')
+        .insert({
+          room_id: selectedRoom.id,
+          student_id: selectedStudent,
+          is_active: true
+        });
+
+      if (assignmentError) throw assignmentError;
+
+      // Update room status to occupied
+      const { error: roomError } = await supabase
+        .from('rooms')
+        .update({ status: 'Occupied' })
+        .eq('id', selectedRoom.id);
+
+      if (roomError) throw roomError;
+
+      toast({
+        title: "Success",
+        description: "Student assigned to room successfully!",
+      });
+
+      setShowAssignDialog(false);
+      setSelectedRoom(null);
+      setSelectedStudent('');
+      fetchRooms();
+      fetchAvailableStudents();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleVacateRoom = async (room: any) => {
+    try {
+      // Deactivate room assignment
+      const { error: assignmentError } = await supabase
+        .from('room_assignments')
+        .update({ 
+          is_active: false,
+          vacated_at: new Date().toISOString()
+        })
+        .eq('room_id', room.id)
+        .eq('is_active', true);
+
+      if (assignmentError) throw assignmentError;
+
+      // Update room status to vacant
+      const { error: roomError } = await supabase
+        .from('rooms')
+        .update({ status: 'Vacant' })
+        .eq('id', room.id);
+
+      if (roomError) throw roomError;
+
+      toast({
+        title: "Success",
+        description: "Room vacated successfully!",
+      });
+
+      fetchRooms();
+      fetchAvailableStudents();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleRoomInspection = async (roomId: string) => {
+    try {
+      const { error } = await supabase
+        .from('rooms')
+        .update({ last_inspection: new Date().toISOString().split('T')[0] })
+        .eq('id', roomId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Room inspection recorded!",
+      });
+
+      fetchRooms();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading rooms...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -42,7 +271,7 @@ const RoomManagement = () => {
 
       {/* Floor Statistics */}
       <div className="grid md:grid-cols-4 gap-6 mb-8">
-        {Object.entries(floorStats).map(([floor, stats]) => (
+        {Object.entries(floorStats).map(([floor, stats]: [string, any]) => (
           <Card key={floor} className="bg-gradient-to-r from-blue-50 to-blue-100">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-4">
@@ -86,7 +315,7 @@ const RoomManagement = () => {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <Input
-                  placeholder="Search by room number or student name..."
+                  placeholder="Search by room number or student email..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
@@ -99,10 +328,9 @@ const RoomManagement = () => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Floors</SelectItem>
-                <SelectItem value="Ground">Ground Floor</SelectItem>
-                <SelectItem value="2nd">2nd Floor</SelectItem>
-                <SelectItem value="3rd">3rd Floor</SelectItem>
-                <SelectItem value="4th">4th Floor</SelectItem>
+                {Object.keys(floorStats).map(floor => (
+                  <SelectItem key={floor} value={floor}>{floor} Floor</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -115,7 +343,7 @@ const RoomManagement = () => {
           <Card key={room.id} className="hover:shadow-lg transition-shadow">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">Room {room.id}</CardTitle>
+                <CardTitle className="text-lg">Room {room.room_number}</CardTitle>
                 <Badge variant={
                   room.status === 'Occupied' ? 'default' :
                   room.status === 'Vacant' ? 'secondary' :
@@ -133,7 +361,7 @@ const RoomManagement = () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Student:</span>
-                  <span>{room.student || 'Unassigned'}</span>
+                  <span className="text-right text-xs">{room.student || 'Unassigned'}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Condition:</span>
@@ -147,56 +375,83 @@ const RoomManagement = () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Last Inspection:</span>
-                  <span>{room.lastInspection}</span>
+                  <span>{room.last_inspection ? new Date(room.last_inspection).toLocaleDateString() : 'Never'}</span>
                 </div>
               </div>
               
               <div className="flex space-x-2">
-                <Button variant="outline" size="sm" className="flex-1">
-                  View Details
-                </Button>
                 {room.status === 'Vacant' && (
-                  <Button size="sm" className="flex-1">
-                    Assign Student
+                  <Button 
+                    size="sm" 
+                    className="flex-1"
+                    onClick={() => {
+                      setSelectedRoom(room);
+                      setShowAssignDialog(true);
+                    }}
+                  >
+                    <UserPlus className="w-4 h-4 mr-1" />
+                    Assign
                   </Button>
                 )}
                 {room.status === 'Occupied' && (
-                  <Button variant="outline" size="sm" className="flex-1">
-                    Transfer
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="flex-1"
+                    onClick={() => handleVacateRoom(room)}
+                  >
+                    Vacate
                   </Button>
                 )}
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="flex-1"
+                  onClick={() => handleRoomInspection(room.id)}
+                >
+                  Inspect
+                </Button>
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      {/* Quick Actions */}
-      <Card className="mt-8">
-        <CardHeader>
-          <CardTitle>Quick Actions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid md:grid-cols-4 gap-4">
-            <Button className="h-20 flex flex-col items-center justify-center space-y-2">
-              <Users className="w-6 h-6" />
-              <span>Bulk Assignment</span>
-            </Button>
-            <Button variant="outline" className="h-20 flex flex-col items-center justify-center space-y-2">
-              <Home className="w-6 h-6" />
-              <span>Room Inspection</span>
-            </Button>
-            <Button variant="outline" className="h-20 flex flex-col items-center justify-center space-y-2">
-              <Filter className="w-6 h-6" />
-              <span>Maintenance Schedule</span>
-            </Button>
-            <Button variant="outline" className="h-20 flex flex-col items-center justify-center space-y-2">
-              <Search className="w-6 h-6" />
-              <span>Generate Report</span>
-            </Button>
+      {/* Student Assignment Dialog */}
+      <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assign Student to Room {selectedRoom?.room_number}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            {availableStudents.length > 0 ? (
+              <>
+                <Select value={selectedStudent} onValueChange={setSelectedStudent}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a student" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-48">
+                    {availableStudents.map((student) => (
+                      <SelectItem key={student.id} value={student.id}>
+                        {student.email}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button onClick={handleAssignStudent} className="w-full">
+                  Assign Student
+                </Button>
+              </>
+            ) : (
+              <Alert>
+                <AlertDescription>
+                  No available students to assign. All approved students already have room assignments.
+                </AlertDescription>
+              </Alert>
+            )}
           </div>
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

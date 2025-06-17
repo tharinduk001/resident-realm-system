@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,79 +7,183 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { AlertTriangle, Plus, Clock, CheckCircle, XCircle } from "lucide-react";
+import { AlertTriangle, Plus, Clock, CheckCircle, XCircle, Search, Filter } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 interface RequestSystemProps {
   userRole: string;
 }
 
 const RequestSystem = ({ userRole }: RequestSystemProps) => {
+  const [requests, setRequests] = useState<any[]>([]);
+  const [filteredRequests, setFilteredRequests] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [stats, setStats] = useState({
+    total: 0,
+    pending: 0,
+    completed: 0,
+    highPriority: 0
+  });
   const [newRequest, setNewRequest] = useState({
     type: '',
     description: '',
     priority: 'Medium',
-    room: ''
+    room_number: ''
   });
+  const [showNewRequestDialog, setShowNewRequestDialog] = useState(false);
+  const { toast } = useToast();
 
-  const requests = [
-    {
-      id: 1,
-      type: 'Maintenance',
-      description: 'Broken ceiling fan in Room 201',
-      student: 'Alex Johnson',
-      room: 'B-201',
-      status: 'In Progress',
-      priority: 'High',
-      dateSubmitted: '2024-01-15',
-      assignedTo: 'Maintenance Team A'
-    },
-    {
-      id: 2,
-      type: 'Temporary Room',
-      description: 'Need interview room for tomorrow',
-      student: 'Sarah Wilson',
-      room: 'B-202',
-      status: 'Approved',
-      priority: 'Medium',
-      dateSubmitted: '2024-01-16',
-      assignedTo: 'Sub Warden'
-    },
-    {
-      id: 3,
-      type: 'Key Handover',
-      description: 'Going home for emergency, need to hand over keys',
-      student: 'Mike Davis',
-      room: 'C-301',
-      status: 'Completed',
-      priority: 'Low',
-      dateSubmitted: '2024-01-14',
-      assignedTo: 'Warden'
-    },
-    {
-      id: 4,
-      type: 'Room Change',
-      description: 'Request to move to ground floor due to mobility issues',
-      student: 'Emma Brown',
-      room: 'D-401',
-      status: 'Pending',
-      priority: 'High',
-      dateSubmitted: '2024-01-17',
-      assignedTo: 'Sub Warden'
+  useEffect(() => {
+    fetchRequests();
+  }, [userRole]);
+
+  useEffect(() => {
+    filterRequests();
+  }, [requests, statusFilter, searchTerm]);
+
+  const fetchRequests = async () => {
+    try {
+      const user = await supabase.auth.getUser();
+      if (!user.data.user) return;
+
+      let query = supabase.from('requests').select(`
+        *,
+        profiles!requests_user_id_fkey(email),
+        assigned_profiles:profiles!requests_assigned_to_fkey(email)
+      `);
+
+      if (userRole === 'student') {
+        query = query.eq('user_id', user.data.user.id);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setRequests(data || []);
+      
+      // Calculate stats
+      const total = data?.length || 0;
+      const pending = data?.filter(r => r.status === 'Pending').length || 0;
+      const completed = data?.filter(r => r.status === 'Completed').length || 0;
+      const highPriority = data?.filter(r => r.priority === 'High').length || 0;
+      
+      setStats({ total, pending, completed, highPriority });
+    } catch (error: any) {
+      console.error('Error fetching requests:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load requests",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
 
-  const handleSubmitRequest = () => {
-    console.log('Submitting request:', newRequest);
-    // In real app, this would call an API
-    setNewRequest({ type: '', description: '', priority: 'Medium', room: '' });
+  const filterRequests = () => {
+    let filtered = requests;
+
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(r => r.status.toLowerCase() === statusFilter.toLowerCase());
+    }
+
+    if (searchTerm) {
+      filtered = filtered.filter(r => 
+        r.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.room_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.profiles?.email?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    setFilteredRequests(filtered);
+  };
+
+  const handleSubmitRequest = async () => {
+    if (!newRequest.type || !newRequest.description) {
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const user = await supabase.auth.getUser();
+      if (!user.data.user) return;
+
+      const { error } = await supabase
+        .from('requests')
+        .insert({
+          user_id: user.data.user.id,
+          type: newRequest.type,
+          description: newRequest.description,
+          priority: newRequest.priority,
+          room_number: newRequest.room_number
+        });
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Request submitted successfully!",
+      });
+
+      setNewRequest({ type: '', description: '', priority: 'Medium', room_number: '' });
+      setShowNewRequestDialog(false);
+      fetchRequests();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleUpdateRequestStatus = async (requestId: string, newStatus: string) => {
+    try {
+      const updateData: any = { status: newStatus };
+      
+      if (newStatus === 'In Progress' || newStatus === 'Approved') {
+        const user = await supabase.auth.getUser();
+        updateData.assigned_to = user.data.user?.id;
+      }
+
+      const { error } = await supabase
+        .from('requests')
+        .update(updateData)
+        .eq('id', requestId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: `Request ${newStatus.toLowerCase()} successfully!`,
+      });
+
+      fetchRequests();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'Completed': return 'default';
-      case 'In Progress': return 'default';
+      case 'In Progress': return 'secondary';
       case 'Approved': return 'secondary';
       case 'Pending': return 'destructive';
+      case 'Rejected': return 'destructive';
       default: return 'secondary';
     }
   };
@@ -92,6 +196,17 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
       default: return 'secondary';
     }
   };
+
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading requests...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -109,7 +224,7 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
         </div>
         
         {userRole === 'student' && (
-          <Dialog>
+          <Dialog open={showNewRequestDialog} onOpenChange={setShowNewRequestDialog}>
             <DialogTrigger asChild>
               <Button className="flex items-center space-x-2">
                 <Plus className="w-4 h-4" />
@@ -136,8 +251,8 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
 
                 <Input
                   placeholder="Room Number (e.g., B-201)"
-                  value={newRequest.room}
-                  onChange={(e) => setNewRequest({...newRequest, room: e.target.value})}
+                  value={newRequest.room_number}
+                  onChange={(e) => setNewRequest({...newRequest, room_number: e.target.value})}
                 />
 
                 <Select value={newRequest.priority} onValueChange={(value) => setNewRequest({...newRequest, priority: value})}>
@@ -168,14 +283,14 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
       </div>
 
       {/* Request Statistics (Staff only) */}
-      {userRole === 'staff' && (
+      {(userRole === 'staff' || userRole === 'admin') && (
         <div className="grid md:grid-cols-4 gap-6 mb-8">
           <Card className="bg-gradient-to-r from-blue-500 to-blue-600 text-white">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-blue-100">Total Requests</p>
-                  <p className="text-2xl font-bold">24</p>
+                  <p className="text-2xl font-bold">{stats.total}</p>
                 </div>
                 <AlertTriangle className="w-8 h-8 text-blue-200" />
               </div>
@@ -187,7 +302,7 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-orange-100">Pending</p>
-                  <p className="text-2xl font-bold">6</p>
+                  <p className="text-2xl font-bold">{stats.pending}</p>
                 </div>
                 <Clock className="w-8 h-8 text-orange-200" />
               </div>
@@ -199,7 +314,7 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-green-100">Completed</p>
-                  <p className="text-2xl font-bold">15</p>
+                  <p className="text-2xl font-bold">{stats.completed}</p>
                 </div>
                 <CheckCircle className="w-8 h-8 text-green-200" />
               </div>
@@ -211,7 +326,7 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-red-100">High Priority</p>
-                  <p className="text-2xl font-bold">3</p>
+                  <p className="text-2xl font-bold">{stats.highPriority}</p>
                 </div>
                 <XCircle className="w-8 h-8 text-red-200" />
               </div>
@@ -220,73 +335,130 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
         </div>
       )}
 
+      {/* Filters */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Filter className="w-5 h-5" />
+            <span>Filter Requests</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <Input
+                  placeholder="Search requests..."
+                  value={searchTerm}
+                  onChange={(e) => setSearch
+
+(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Filter by Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="in progress">In Progress</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Requests List */}
       <div className="space-y-4">
-        {requests.map((request) => (
-          <Card key={request.id} className="hover:shadow-md transition-shadow">
-            <CardContent className="p-6">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex-1">
-                  <div className="flex items-center space-x-3 mb-2">
-                    <h3 className="font-semibold text-lg text-gray-900">{request.type}</h3>
-                    <Badge variant={getStatusColor(request.status)}>
-                      {request.status}
-                    </Badge>
-                    <Badge variant={getPriorityColor(request.priority)}>
-                      {request.priority} Priority
-                    </Badge>
+        {filteredRequests.length > 0 ? (
+          filteredRequests.map((request) => (
+            <Card key={request.id} className="hover:shadow-md transition-shadow">
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-3 mb-2">
+                      <h3 className="font-semibold text-lg text-gray-900">{request.type}</h3>
+                      <Badge variant={getStatusColor(request.status)}>
+                        {request.status}
+                      </Badge>
+                      <Badge variant={getPriorityColor(request.priority)}>
+                        {request.priority} Priority
+                      </Badge>
+                    </div>
+                    <p className="text-gray-600 mb-2">{request.description}</p>
+                    <div className="flex items-center space-x-4 text-sm text-gray-500">
+                      {request.room_number && <span>Room: {request.room_number}</span>}
+                      {(userRole === 'staff' || userRole === 'admin') && request.profiles?.email && (
+                        <span>Student: {request.profiles.email}</span>
+                      )}
+                      <span>Submitted: {new Date(request.created_at).toLocaleDateString()}</span>
+                      {request.assigned_profiles?.email && (
+                        <span>Assigned to: {request.assigned_profiles.email}</span>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-gray-600 mb-2">{request.description}</p>
-                  <div className="flex items-center space-x-4 text-sm text-gray-500">
-                    <span>Room: {request.room}</span>
-                    {userRole === 'staff' && <span>Student: {request.student}</span>}
-                    <span>Submitted: {request.dateSubmitted}</span>
-                    {request.assignedTo && <span>Assigned to: {request.assignedTo}</span>}
+                  
+                  <div className="flex space-x-2 ml-4">
+                    {(userRole === 'staff' || userRole === 'admin') && request.status === 'Pending' && (
+                      <>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => handleUpdateRequestStatus(request.id, 'Rejected')}
+                        >
+                          Reject
+                        </Button>
+                        <Button 
+                          size="sm"
+                          onClick={() => handleUpdateRequestStatus(request.id, 'Approved')}
+                        >
+                          Approve
+                        </Button>
+                      </>
+                    )}
+                    {(userRole === 'staff' || userRole === 'admin') && request.status === 'Approved' && (
+                      <Button 
+                        size="sm"
+                        onClick={() => handleUpdateRequestStatus(request.id, 'In Progress')}
+                      >
+                        Start Work
+                      </Button>
+                    )}
+                    {(userRole === 'staff' || userRole === 'admin') && request.status === 'In Progress' && (
+                      <Button 
+                        size="sm"
+                        onClick={() => handleUpdateRequestStatus(request.id, 'Completed')}
+                      >
+                        Mark Complete
+                      </Button>
+                    )}
                   </div>
                 </div>
-                
-                <div className="flex space-x-2 ml-4">
-                  {userRole === 'staff' && request.status === 'Pending' && (
-                    <>
-                      <Button variant="outline" size="sm">Reject</Button>
-                      <Button size="sm">Approve</Button>
-                    </>
-                  )}
-                  {userRole === 'staff' && request.status === 'In Progress' && (
-                    <Button size="sm">Mark Complete</Button>
-                  )}
-                  <Button variant="outline" size="sm">View Details</Button>
-                </div>
-              </div>
+              </CardContent>
+            </Card>
+          ))
+        ) : (
+          <Card>
+            <CardContent className="p-8 text-center">
+              <AlertTriangle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No Requests Found</h3>
+              <p className="text-gray-600">
+                {userRole === 'student' 
+                  ? "You haven't submitted any requests yet."
+                  : "No requests match your current filters."
+                }
+              </p>
             </CardContent>
           </Card>
-        ))}
+        )}
       </div>
-
-      {/* Quick Actions for Staff */}
-      {userRole === 'staff' && (
-        <Card className="mt-8">
-          <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid md:grid-cols-3 gap-4">
-              <Button variant="outline" className="h-16 flex flex-col items-center justify-center space-y-2">
-                <AlertTriangle className="w-5 h-5" />
-                <span>Bulk Assign</span>
-              </Button>
-              <Button variant="outline" className="h-16 flex flex-col items-center justify-center space-y-2">
-                <Clock className="w-5 h-5" />
-                <span>Set Priorities</span>
-              </Button>
-              <Button variant="outline" className="h-16 flex flex-col items-center justify-center space-y-2">
-                <CheckCircle className="w-5 h-5" />
-                <span>Generate Report</span>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 };
