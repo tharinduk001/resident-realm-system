@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Menu, Home, Users, MessageSquare, Calendar, Key, LogOut, FileText, Shield } from "lucide-react";
+import { Menu, Home, Users, MessageSquare, Calendar, Key, LogOut, FileText } from "lucide-react";
 
 interface NavigationProps {
   userRole: string;
@@ -23,9 +23,6 @@ const Navigation = ({ userRole, currentView, setCurrentView, onLogout, showRegis
       { id: 'staff-dashboard', label: 'Dashboard', icon: Home },
       { id: 'room-management', label: 'Room Management', icon: Key },
       ...(showRegistrationReview ? [{ id: 'registration-review', label: 'Registration Review', icon: FileText }] : [])
-    ] : []),
-    ...(userRole === 'admin' ? [
-      { id: 'admin-dashboard', label: 'Admin Panel', icon: Shield }
     ] : []),
     { id: 'requests', label: 'Requests', icon: MessageSquare },
     { id: 'announcements', label: 'Announcements', icon: Calendar },

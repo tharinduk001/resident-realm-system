@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Home, Users, Search, Filter, Plus, UserPlus } from "lucide-react";
+import { Home, Users, Search, Filter, UserPlus, Settings, GraduationCap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -19,14 +19,19 @@ const RoomManagement = () => {
   const [loading, setLoading] = useState(true);
   const [floorStats, setFloorStats] = useState<any>({});
   const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [showConditionDialog, setShowConditionDialog] = useState(false);
+  const [showPassOutDialog, setShowPassOutDialog] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<any>(null);
   const [availableStudents, setAvailableStudents] = useState<any[]>([]);
-  const [selectedStudent, setSelectedStudent] = useState('');
+  const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
+  const [newCondition, setNewCondition] = useState('');
+  const [studentsForPassOut, setStudentsForPassOut] = useState<any[]>([]);
   const { toast } = useToast();
 
   useEffect(() => {
     fetchRooms();
     fetchAvailableStudents();
+    fetchStudentsForPassOut();
   }, []);
 
   useEffect(() => {
@@ -35,7 +40,6 @@ const RoomManagement = () => {
 
   const fetchRooms = async () => {
     try {
-      // First, get all rooms
       const { data: roomsData, error: roomsError } = await supabase
         .from('rooms')
         .select('*')
@@ -43,7 +47,6 @@ const RoomManagement = () => {
 
       if (roomsError) throw roomsError;
 
-      // Then get room assignments separately
       const { data: assignmentsData, error: assignmentsError } = await supabase
         .from('room_assignments')
         .select('room_id, student_id, is_active')
@@ -51,7 +54,6 @@ const RoomManagement = () => {
 
       if (assignmentsError) throw assignmentsError;
 
-      // Get profiles for assigned students
       const studentIds = assignmentsData?.map(a => a.student_id).filter(Boolean) || [];
       let profilesData: any[] = [];
       
@@ -68,15 +70,17 @@ const RoomManagement = () => {
         }
       }
 
-      // Combine the data
       const processedRooms = roomsData?.map(room => {
-        const assignment = assignmentsData?.find(a => a.room_id === room.id);
-        const profile = assignment ? profilesData.find(p => p.id === assignment.student_id) : null;
+        const roomAssignments = assignmentsData?.filter(a => a.room_id === room.id) || [];
+        const students = roomAssignments.map(assignment => {
+          const profile = profilesData.find(p => p.id === assignment.student_id);
+          return profile?.email || 'Unknown';
+        });
         
         return {
           ...room,
-          student: profile?.email || null,
-          student_id: assignment?.student_id || null
+          students,
+          occupancy: roomAssignments.length
         };
       }) || [];
 
@@ -96,7 +100,6 @@ const RoomManagement = () => {
 
   const fetchAvailableStudents = async () => {
     try {
-      // Get all student profiles
       const { data: studentsData, error: studentsError } = await supabase
         .from('profiles')
         .select('id, email')
@@ -104,7 +107,6 @@ const RoomManagement = () => {
 
       if (studentsError) throw studentsError;
 
-      // Get active room assignments
       const { data: assignmentsData, error: assignmentsError } = await supabase
         .from('room_assignments')
         .select('student_id')
@@ -112,18 +114,17 @@ const RoomManagement = () => {
 
       if (assignmentsError) throw assignmentsError;
 
-      // Get approved student registrations
       const { data: registrationsData, error: registrationsError } = await supabase
         .from('student_registrations')
         .select('user_id')
-        .eq('status', 'approved');
+        .eq('status', 'approved')
+        .eq('graduation_status', 'active');
 
       if (registrationsError) throw registrationsError;
 
       const assignedStudentIds = assignmentsData?.map(a => a.student_id) || [];
       const approvedStudentIds = registrationsData?.map(r => r.user_id) || [];
 
-      // Filter students who are approved but not assigned to rooms
       const availableStudents = studentsData?.filter(student => 
         approvedStudentIds.includes(student.id) && 
         !assignedStudentIds.includes(student.id)
@@ -135,12 +136,35 @@ const RoomManagement = () => {
     }
   };
 
+  const fetchStudentsForPassOut = async () => {
+    try {
+      const { data: studentsData, error } = await supabase
+        .from('student_registrations')
+        .select(`
+          id,
+          user_id,
+          full_name,
+          academic_year,
+          graduation_status,
+          profiles!inner(email)
+        `)
+        .eq('status', 'approved')
+        .eq('graduation_status', 'active')
+        .gte('academic_year', 4);
+
+      if (error) throw error;
+      setStudentsForPassOut(studentsData || []);
+    } catch (error: any) {
+      console.error('Error fetching students for pass out:', error);
+    }
+  };
+
   const calculateFloorStats = (roomsData: any[]) => {
     const stats: any = {};
     
     roomsData.forEach(room => {
       if (!stats[room.floor]) {
-        stats[room.floor] = { total: 0, occupied: 0, vacant: 0, maintenance: 0 };
+        stats[room.floor] = { total: 0, occupied: 0, vacant: 0, full: 0, maintenance: 0 };
       }
       
       stats[room.floor].total++;
@@ -149,7 +173,9 @@ const RoomManagement = () => {
         stats[room.floor].occupied++;
       } else if (room.status === 'Vacant') {
         stats[room.floor].vacant++;
-      } else if (room.status === 'Maintenance') {
+      } else if (room.status === 'Full') {
+        stats[room.floor].full++;
+      } else if (room.status === 'Maintenance' || room.condition === 'Maintenance' || room.condition === 'Under Repair') {
         stats[room.floor].maintenance++;
       }
     });
@@ -167,51 +193,55 @@ const RoomManagement = () => {
     if (searchTerm) {
       filtered = filtered.filter(room =>
         room.room_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (room.student && room.student.toLowerCase().includes(searchTerm.toLowerCase()))
+        room.students.some((student: string) => 
+          student.toLowerCase().includes(searchTerm.toLowerCase())
+        )
       );
     }
 
     setFilteredRooms(filtered);
   };
 
-  const handleAssignStudent = async () => {
-    if (!selectedStudent || !selectedRoom) {
+  const handleAssignStudents = async () => {
+    if (selectedStudents.length === 0 || !selectedRoom) {
       toast({
         title: "Error",
-        description: "Please select a student",
+        description: "Please select at least one student",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (selectedRoom.occupancy + selectedStudents.length > selectedRoom.max_occupancy) {
+      toast({
+        title: "Error",
+        description: `Cannot assign ${selectedStudents.length} students. Room capacity is ${selectedRoom.max_occupancy}, current occupancy is ${selectedRoom.occupancy}`,
         variant: "destructive"
       });
       return;
     }
 
     try {
-      // Create room assignment
-      const { error: assignmentError } = await supabase
+      const assignments = selectedStudents.map(studentId => ({
+        room_id: selectedRoom.id,
+        student_id: studentId,
+        is_active: true
+      }));
+
+      const { error } = await supabase
         .from('room_assignments')
-        .insert({
-          room_id: selectedRoom.id,
-          student_id: selectedStudent,
-          is_active: true
-        });
+        .insert(assignments);
 
-      if (assignmentError) throw assignmentError;
-
-      // Update room status to occupied
-      const { error: roomError } = await supabase
-        .from('rooms')
-        .update({ status: 'Occupied' })
-        .eq('id', selectedRoom.id);
-
-      if (roomError) throw roomError;
+      if (error) throw error;
 
       toast({
         title: "Success",
-        description: "Student assigned to room successfully!",
+        description: `${selectedStudents.length} student(s) assigned to room successfully!`,
       });
 
       setShowAssignDialog(false);
       setSelectedRoom(null);
-      setSelectedStudent('');
+      setSelectedStudents([]);
       fetchRooms();
       fetchAvailableStudents();
     } catch (error: any) {
@@ -225,8 +255,7 @@ const RoomManagement = () => {
 
   const handleVacateRoom = async (room: any) => {
     try {
-      // Deactivate room assignment
-      const { error: assignmentError } = await supabase
+      const { error } = await supabase
         .from('room_assignments')
         .update({ 
           is_active: false,
@@ -235,15 +264,7 @@ const RoomManagement = () => {
         .eq('room_id', room.id)
         .eq('is_active', true);
 
-      if (assignmentError) throw assignmentError;
-
-      // Update room status to vacant
-      const { error: roomError } = await supabase
-        .from('rooms')
-        .update({ status: 'Vacant' })
-        .eq('id', room.id);
-
-      if (roomError) throw roomError;
+      if (error) throw error;
 
       toast({
         title: "Success",
@@ -261,21 +282,66 @@ const RoomManagement = () => {
     }
   };
 
-  const handleRoomInspection = async (roomId: string) => {
+  const handleUpdateCondition = async () => {
+    if (!newCondition || !selectedRoom) return;
+
     try {
       const { error } = await supabase
         .from('rooms')
-        .update({ last_inspection: new Date().toISOString().split('T')[0] })
-        .eq('id', roomId);
+        .update({ condition: newCondition })
+        .eq('id', selectedRoom.id);
 
       if (error) throw error;
 
       toast({
         title: "Success",
-        description: "Room inspection recorded!",
+        description: "Room condition updated successfully!",
       });
 
+      setShowConditionDialog(false);
+      setSelectedRoom(null);
+      setNewCondition('');
       fetchRooms();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handlePassOutStudents = async (studentIds: string[]) => {
+    try {
+      // Update graduation status
+      const { error: registrationError } = await supabase
+        .from('student_registrations')
+        .update({ graduation_status: 'passed_out' })
+        .in('user_id', studentIds);
+
+      if (registrationError) throw registrationError;
+
+      // Deactivate room assignments
+      const { error: assignmentError } = await supabase
+        .from('room_assignments')
+        .update({ 
+          is_active: false,
+          vacated_at: new Date().toISOString()
+        })
+        .in('student_id', studentIds)
+        .eq('is_active', true);
+
+      if (assignmentError) throw assignmentError;
+
+      toast({
+        title: "Success",
+        description: `${studentIds.length} student(s) passed out successfully!`,
+      });
+
+      setShowPassOutDialog(false);
+      fetchRooms();
+      fetchAvailableStudents();
+      fetchStudentsForPassOut();
     } catch (error: any) {
       toast({
         title: "Error",
@@ -298,9 +364,20 @@ const RoomManagement = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Room Management</h1>
-        <p className="text-gray-600">Manage rooms, assignments, and maintenance across all floors</p>
+      <div className="mb-8 flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Room Management</h1>
+          <p className="text-gray-600">Manage rooms, assignments, and maintenance across all floors</p>
+        </div>
+        
+        <Button
+          onClick={() => setShowPassOutDialog(true)}
+          className="flex items-center space-x-2"
+          variant="outline"
+        >
+          <GraduationCap className="w-4 h-4" />
+          <span>Pass Out Students</span>
+        </Button>
       </div>
 
       {/* Floor Statistics */}
@@ -314,7 +391,7 @@ const RoomManagement = () => {
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Total Rooms:</span>
+                  <span className="text-gray-600">Total:</span>
                   <span className="font-medium">{stats.total}</span>
                 </div>
                 <div className="flex justify-between text-sm">
@@ -324,6 +401,10 @@ const RoomManagement = () => {
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Vacant:</span>
                   <span className="font-medium text-blue-600">{stats.vacant}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Full:</span>
+                  <span className="font-medium text-purple-600">{stats.full}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Maintenance:</span>
@@ -381,6 +462,7 @@ const RoomManagement = () => {
                 <Badge variant={
                   room.status === 'Occupied' ? 'default' :
                   room.status === 'Vacant' ? 'secondary' :
+                  room.status === 'Full' ? 'secondary' :
                   'destructive'
                 }>
                   {room.status}
@@ -394,30 +476,38 @@ const RoomManagement = () => {
                   <span>{room.floor}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Student:</span>
-                  <span className="text-right text-xs">{room.student || 'Unassigned'}</span>
+                  <span className="text-gray-600">Occupancy:</span>
+                  <span>{room.occupancy}/{room.max_occupancy}</span>
+                </div>
+                <div className="text-sm">
+                  <span className="text-gray-600">Students:</span>
+                  <div className="mt-1 space-y-1">
+                    {room.students.length > 0 ? room.students.map((student: string, index: number) => (
+                      <div key={index} className="text-xs bg-gray-100 px-2 py-1 rounded">
+                        {student}
+                      </div>
+                    )) : (
+                      <span className="text-xs text-gray-400">No students assigned</span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Condition:</span>
                   <Badge variant={
                     room.condition === 'Good' ? 'secondary' :
                     room.condition === 'Fair' ? 'default' :
+                    room.condition === 'Maintenance' || room.condition === 'Under Repair' ? 'destructive' :
                     'destructive'
                   }>
                     {room.condition}
                   </Badge>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Last Inspection:</span>
-                  <span>{room.last_inspection ? new Date(room.last_inspection).toLocaleDateString() : 'Never'}</span>
-                </div>
               </div>
               
-              <div className="flex space-x-2">
-                {room.status === 'Vacant' && (
+              <div className="flex flex-wrap gap-2">
+                {room.occupancy < room.max_occupancy && room.condition !== 'Maintenance' && room.condition !== 'Under Repair' && (
                   <Button 
                     size="sm" 
-                    className="flex-1"
                     onClick={() => {
                       setSelectedRoom(room);
                       setShowAssignDialog(true);
@@ -427,23 +517,26 @@ const RoomManagement = () => {
                     Assign
                   </Button>
                 )}
-                {room.status === 'Occupied' && (
+                {room.occupancy > 0 && (
                   <Button 
                     variant="outline" 
                     size="sm" 
-                    className="flex-1"
                     onClick={() => handleVacateRoom(room)}
                   >
-                    Vacate
+                    Vacate All
                   </Button>
                 )}
                 <Button 
                   variant="outline" 
                   size="sm" 
-                  className="flex-1"
-                  onClick={() => handleRoomInspection(room.id)}
+                  onClick={() => {
+                    setSelectedRoom(room);
+                    setNewCondition(room.condition);
+                    setShowConditionDialog(true);
+                  }}
                 >
-                  Inspect
+                  <Settings className="w-4 h-4 mr-1" />
+                  Condition
                 </Button>
               </div>
             </CardContent>
@@ -455,31 +548,105 @@ const RoomManagement = () => {
       <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Assign Student to Room {selectedRoom?.room_number}</DialogTitle>
+            <DialogTitle>Assign Students to Room {selectedRoom?.room_number}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-4">
+            <p className="text-sm text-gray-600">
+              Room capacity: {selectedRoom?.max_occupancy}, Current occupancy: {selectedRoom?.occupancy}
+            </p>
             {availableStudents.length > 0 ? (
               <>
-                <Select value={selectedStudent} onValueChange={setSelectedStudent}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a student" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-48">
-                    {availableStudents.map((student) => (
-                      <SelectItem key={student.id} value={student.id}>
-                        {student.email}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button onClick={handleAssignStudent} className="w-full">
-                  Assign Student
+                <div className="max-h-48 overflow-y-auto border rounded p-2">
+                  {availableStudents.map((student) => (
+                    <div key={student.id} className="flex items-center space-x-2 p-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedStudents.includes(student.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedStudents([...selectedStudents, student.id]);
+                          } else {
+                            setSelectedStudents(selectedStudents.filter(id => id !== student.id));
+                          }
+                        }}
+                      />
+                      <span className="text-sm">{student.email}</span>
+                    </div>
+                  ))}
+                </div>
+                <Button onClick={handleAssignStudents} className="w-full">
+                  Assign {selectedStudents.length} Student(s)
                 </Button>
               </>
             ) : (
               <Alert>
                 <AlertDescription>
-                  No available students to assign. All approved students already have room assignments.
+                  No available students to assign.
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Condition Update Dialog */}
+      <Dialog open={showConditionDialog} onOpenChange={setShowConditionDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Update Room Condition</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <Select value={newCondition} onValueChange={setNewCondition}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select condition" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Good">Good</SelectItem>
+                <SelectItem value="Fair">Fair</SelectItem>
+                <SelectItem value="Poor">Poor</SelectItem>
+                <SelectItem value="Maintenance">Maintenance</SelectItem>
+                <SelectItem value="Under Repair">Under Repair</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button onClick={handleUpdateCondition} className="w-full">
+              Update Condition
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Pass Out Students Dialog */}
+      <Dialog open={showPassOutDialog} onOpenChange={setShowPassOutDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Pass Out Students</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <p className="text-sm text-gray-600">
+              Students eligible for pass out (Academic Year 4 and above):
+            </p>
+            {studentsForPassOut.length > 0 ? (
+              <div className="max-h-64 overflow-y-auto border rounded p-2">
+                {studentsForPassOut.map((student) => (
+                  <div key={student.id} className="flex items-center justify-between p-2 border-b">
+                    <div>
+                      <p className="font-medium">{student.full_name}</p>
+                      <p className="text-sm text-gray-600">{student.profiles.email}</p>
+                      <p className="text-sm text-gray-500">Academic Year: {student.academic_year}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => handlePassOutStudents([student.user_id])}
+                    >
+                      Pass Out
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Alert>
+                <AlertDescription>
+                  No students eligible for pass out at this time.
                 </AlertDescription>
               </Alert>
             )}

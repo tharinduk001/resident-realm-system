@@ -182,9 +182,11 @@ export type Database = {
         Row: {
           condition: string | null
           created_at: string | null
+          current_occupancy: number | null
           floor: string
           id: string
           last_inspection: string | null
+          max_occupancy: number | null
           room_number: string
           room_size: string | null
           room_type: string | null
@@ -194,9 +196,11 @@ export type Database = {
         Insert: {
           condition?: string | null
           created_at?: string | null
+          current_occupancy?: number | null
           floor: string
           id?: string
           last_inspection?: string | null
+          max_occupancy?: number | null
           room_number: string
           room_size?: string | null
           room_type?: string | null
@@ -206,9 +210,11 @@ export type Database = {
         Update: {
           condition?: string | null
           created_at?: string | null
+          current_occupancy?: number | null
           floor?: string
           id?: string
           last_inspection?: string | null
+          max_occupancy?: number | null
           room_number?: string
           room_size?: string | null
           room_type?: string | null
@@ -219,10 +225,12 @@ export type Database = {
       }
       student_registrations: {
         Row: {
+          academic_year: number | null
           additional_reports: string | null
           age: number
           created_at: string | null
           full_name: string
+          graduation_status: string | null
           id: string
           id_number: string
           phone: string
@@ -236,10 +244,12 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          academic_year?: number | null
           additional_reports?: string | null
           age: number
           created_at?: string | null
           full_name: string
+          graduation_status?: string | null
           id?: string
           id_number: string
           phone: string
@@ -253,10 +263,12 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          academic_year?: number | null
           additional_reports?: string | null
           age?: number
           created_at?: string | null
           full_name?: string
+          graduation_status?: string | null
           id?: string
           id_number?: string
           phone?: string

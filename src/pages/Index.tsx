@@ -9,7 +9,6 @@ import { User, Session } from '@supabase/supabase-js';
 import Navigation from "@/components/Navigation";
 import StudentDashboard from "@/components/StudentDashboard";
 import StaffDashboard from "@/components/StaffDashboard";
-import AdminDashboard from "@/components/AdminDashboard";
 import RoomManagement from "@/components/RoomManagement";
 import RequestSystem from "@/components/RequestSystem";
 import AnnouncementBoard from "@/components/AnnouncementBoard";
