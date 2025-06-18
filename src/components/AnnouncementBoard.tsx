@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -224,7 +223,7 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
         {(userRole === 'staff' || userRole === 'admin') && (
           <Dialog open={showNewAnnouncementDialog} onOpenChange={setShowNewAnnouncementDialog}>
             <DialogTrigger asChild>
-              <Button size="sm" className="flex items-center space-x-2">
+              <Button className="flex items-center space-x-2">
                 <Plus className="w-4 h-4" />
                 <span>New Announcement</span>
               </Button>
@@ -257,7 +256,7 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
                   onChange={(e) => setNewAnnouncement({...newAnnouncement, message: e.target.value})}
                 />
 
-                <Button onClick={handleCreateAnnouncement} className="w-full" size="sm">
+                <Button onClick={handleCreateAnnouncement} className="w-full">
                   Create Announcement
                 </Button>
               </div>
@@ -276,7 +275,6 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"
-              size="sm"
             />
           </div>
         </div>
@@ -330,7 +328,6 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
                       {(userRole === 'staff' || userRole === 'admin') && (
                         <Button
                           variant="ghost"
-                          size="sm"
                           onClick={() => handleDeactivateAnnouncement(announcement.id)}
                           className="text-gray-400 hover:text-gray-600"
                         >
@@ -380,7 +377,6 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
                       {(userRole === 'staff' || userRole === 'admin') && (
                         <Button
                           variant="ghost"
-                          size="sm"
                           onClick={() => handleDeactivateAnnouncement(announcement.id)}
                           className="text-gray-400 hover:text-gray-600"
                         >
@@ -430,7 +426,6 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
                       {(userRole === 'staff' || userRole === 'admin') && (
                         <Button
                           variant="ghost"
-                          size="sm"
                           onClick={() => handleDeactivateAnnouncement(announcement.id)}
                           className="text-gray-400 hover:text-gray-600"
                         >

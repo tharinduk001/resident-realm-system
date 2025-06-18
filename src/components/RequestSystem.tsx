@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -277,7 +276,7 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
         {userRole === 'student' && (
           <Dialog open={showNewRequestDialog} onOpenChange={setShowNewRequestDialog}>
             <DialogTrigger asChild>
-              <Button size="sm" className="flex items-center space-x-2">
+              <Button className="flex items-center space-x-2">
                 <Plus className="w-4 h-4" />
                 <span>New Request</span>
               </Button>
@@ -289,7 +288,7 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
               <div className="space-y-4 pt-4">
                 <Select value={newRequest.type} onValueChange={(value) => setNewRequest({...newRequest, type: value})}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Request Type" />
+                    <Select placeholder="Request Type" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Maintenance">Maintenance</SelectItem>
@@ -323,7 +322,7 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
                   onChange={(e) => setNewRequest({...newRequest, description: e.target.value})}
                 />
 
-                <Button onClick={handleSubmitRequest} className="w-full" size="sm">
+                <Button onClick={handleSubmitRequest} className="w-full">
                   Submit Request
                 </Button>
               </div>
@@ -372,7 +371,6 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"
-              size="sm"
             />
           </div>
         </div>
