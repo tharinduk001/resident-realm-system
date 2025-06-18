@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -254,7 +255,6 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
                   placeholder="Message content..."
                   value={newAnnouncement.message}
                   onChange={(e) => setNewAnnouncement({...newAnnouncement, message: e.target.value})}
-                  rows={3}
                 />
 
                 <Button onClick={handleCreateAnnouncement} className="w-full" size="sm">

@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -320,7 +321,6 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
                   placeholder="Describe your request..."
                   value={newRequest.description}
                   onChange={(e) => setNewRequest({...newRequest, description: e.target.value})}
-                  rows={3}
                 />
 
                 <Button onClick={handleSubmitRequest} className="w-full" size="sm">
