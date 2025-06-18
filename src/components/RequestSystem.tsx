@@ -288,7 +288,7 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
               <div className="space-y-4 pt-4">
                 <Select value={newRequest.type} onValueChange={(value) => setNewRequest({...newRequest, type: value})}>
                   <SelectTrigger>
-                    <Select placeholder="Request Type" />
+                    <SelectValue placeholder="Request Type" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Maintenance">Maintenance</SelectItem>
