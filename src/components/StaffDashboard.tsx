@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -67,7 +66,7 @@ const StaffDashboard = ({ onNavigate }: StaffDashboardProps) => {
       }
 
       // Fetch active students count
-      const { data: studentsData, error: studentsError } = await su pabase
+      const { data: studentsData, error: studentsError } = await supabase
         .from('student_registrations')
         .select('*')
         .eq('status', 'approved')
@@ -411,7 +410,7 @@ const StaffDashboard = ({ onNavigate }: StaffDashboardProps) => {
             </div>
             
             <div className="text-center p-4 bg-gray-50 rounded-lg">
-              <h4 className="font-semibent text-gray-900 mb-2">3rd Floor</h4>
+              <h4 className="font-semibold text-gray-900 mb-2">3rd Floor</h4>
               <div className="text-2xl font-bold text-orange-600 mb-1">24/28</div>
               <div className="text-sm text-gray-600">86% Occupied</div>
               <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
