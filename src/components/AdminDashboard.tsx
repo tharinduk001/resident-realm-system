@@ -5,14 +5,30 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Users, UserCheck, UserX, Settings, Plus, Edit2, Trash2, Shield } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
+type UserRole = 'student' | 'staff' | 'admin';
+
+interface UserProfile {
+  id: string;
+  email: string;
+  role: UserRole;
+  created_at: string;
+}
+
+interface RegistrationData {
+  id: string;
+  status: string;
+  user_id: string;
+}
+
 const AdminDashboard = () => {
-  const [users, setUsers] = useState<any[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [registrations, setRegistrations] = useState<RegistrationData[]>([]);
   const [stats, setStats] = useState({
     totalUsers: 0,
     pendingRegistrations: 0,
@@ -21,8 +37,8 @@ const AdminDashboard = () => {
   });
   const [loading, setLoading] = useState(true);
   const [showRoleDialog, setShowRoleDialog] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<any>(null);
-  const [newRole, setNewRole] = useState('');
+  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
+  const [newRole, setNewRole] = useState<UserRole>('student');
   const { toast } = useToast();
 
   useEffect(() => {
@@ -31,24 +47,27 @@ const AdminDashboard = () => {
 
   const fetchAdminData = async () => {
     try {
-      // Fetch all users with their profiles and registrations
+      // Fetch all user profiles
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
-        .select(`
-          *,
-          student_registrations(*)
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (profilesError) throw profilesError;
 
+      // Fetch all registrations separately
+      const { data: registrationsData, error: registrationsError } = await supabase
+        .from('student_registrations')
+        .select('*');
+
+      if (registrationsError) throw registrationsError;
+
       setUsers(profiles || []);
+      setRegistrations(registrationsData || []);
 
       // Calculate stats
       const totalUsers = profiles?.length || 0;
-      const pendingRegistrations = profiles?.filter(p => 
-        p.student_registrations?.some((reg: any) => reg.status === 'pending')
-      ).length || 0;
+      const pendingRegistrations = registrationsData?.filter(reg => reg.status === 'pending').length || 0;
       const activeStudents = profiles?.filter(p => p.role === 'student').length || 0;
       const staffMembers = profiles?.filter(p => p.role === 'staff' || p.role === 'admin').length || 0;
 
@@ -88,7 +107,7 @@ const AdminDashboard = () => {
 
       setShowRoleDialog(false);
       setSelectedUser(null);
-      setNewRole('');
+      setNewRole('student');
       fetchAdminData();
     } catch (error: any) {
       toast({
@@ -128,7 +147,7 @@ const AdminDashboard = () => {
     }
   };
 
-  const getRoleColor = (role: string) => {
+  const getRoleColor = (role: UserRole) => {
     switch (role) {
       case 'admin':
         return 'destructive';
@@ -139,6 +158,10 @@ const AdminDashboard = () => {
       default:
         return 'secondary';
     }
+  };
+
+  const getUserRegistration = (userId: string) => {
+    return registrations.find(reg => reg.user_id === userId);
   };
 
   if (loading) {
@@ -220,55 +243,58 @@ const AdminDashboard = () => {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {users.map((user) => (
-              <div key={user.id} className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="flex-1">
-                  <div className="flex items-center space-x-3 mb-2">
-                    <h3 className="font-semibold">{user.email}</h3>
-                    <Badge variant={getRoleColor(user.role)}>
-                      {user.role?.toUpperCase() || 'NO ROLE'}
-                    </Badge>
-                    {user.student_registrations?.some((reg: any) => reg.status === 'pending') && (
-                      <Badge variant="secondary">Pending Registration</Badge>
-                    )}
+            {users.map((user) => {
+              const registration = getUserRegistration(user.id);
+              return (
+                <div key={user.id} className="flex items-center justify-between p-4 border rounded-lg">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-3 mb-2">
+                      <h3 className="font-semibold">{user.email}</h3>
+                      <Badge variant={getRoleColor(user.role)}>
+                        {user.role?.toUpperCase() || 'NO ROLE'}
+                      </Badge>
+                      {registration?.status === 'pending' && (
+                        <Badge variant="secondary">Pending Registration</Badge>
+                      )}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      <span>Created: {new Date(user.created_at).toLocaleDateString()}</span>
+                      {registration && (
+                        <span className="ml-4">
+                          Registration Status: {registration.status}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-sm text-gray-500">
-                    <span>Created: {new Date(user.created_at).toLocaleDateString()}</span>
-                    {user.student_registrations?.length > 0 && (
-                      <span className="ml-4">
-                        Registration Status: {user.student_registrations[0].status}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="flex space-x-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setSelectedUser(user);
-                      setNewRole(user.role || '');
-                      setShowRoleDialog(true);
-                    }}
-                  >
-                    <Edit2 className="w-4 h-4 mr-1" />
-                    Edit Role
-                  </Button>
                   
-                  {user.role !== 'admin' && (
+                  <div className="flex space-x-2">
                     <Button
-                      variant="destructive"
+                      variant="outline"
                       size="sm"
-                      onClick={() => handleDeleteUser(user.id)}
+                      onClick={() => {
+                        setSelectedUser(user);
+                        setNewRole(user.role || 'student');
+                        setShowRoleDialog(true);
+                      }}
                     >
-                      <Trash2 className="w-4 h-4 mr-1" />
-                      Delete
+                      <Edit2 className="w-4 h-4 mr-1" />
+                      Edit Role
                     </Button>
-                  )}
+                    
+                    {user.role !== 'admin' && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => handleDeleteUser(user.id)}
+                      >
+                        <Trash2 className="w-4 h-4 mr-1" />
+                        Delete
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </CardContent>
       </Card>
@@ -287,7 +313,7 @@ const AdminDashboard = () => {
             
             <div>
               <Label>New Role</Label>
-              <Select value={newRole} onValueChange={setNewRole}>
+              <Select value={newRole} onValueChange={(value: UserRole) => setNewRole(value)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
