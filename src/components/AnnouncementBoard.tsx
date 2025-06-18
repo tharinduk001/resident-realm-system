@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { MessageSquare, Plus, Calendar, AlertTriangle, Info, Search, Filter } from "lucide-react";
+import { MessageSquare, Plus, Calendar, AlertTriangle, Info, Search, Filter, Clock } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -39,7 +39,6 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
 
   const fetchAnnouncements = async () => {
     try {
-      // First, get the base announcements data
       const { data: announcementsData, error: announcementsError } = await supabase
         .from('announcements')
         .select('*')
@@ -48,7 +47,6 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
 
       if (announcementsError) throw announcementsError;
 
-      // Get user profiles for announcement creators
       const userIds = new Set<string>();
       announcementsData?.forEach(announcement => {
         if (announcement.created_by) userIds.add(announcement.created_by);
@@ -68,7 +66,6 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
         }
       }
 
-      // Combine the data
       const processedAnnouncements = announcementsData?.map(announcement => {
         const userProfile = profilesData.find(p => p.id === announcement.created_by);
         
@@ -161,7 +158,7 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
 
       toast({
         title: "Success",
-        description: "Announcement deactivated successfully!",
+        description: "Announcement removed successfully!",
       });
 
       fetchAnnouncements();
@@ -174,36 +171,27 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
     }
   };
 
-  const getAnnouncementIcon = (type: string) => {
+  const getTypeIcon = (type: string) => {
     switch (type) {
-      case 'warning':
-        return <AlertTriangle className="w-5 h-5" />;
-      case 'urgent':
-        return <AlertTriangle className="w-5 h-5" />;
-      default:
-        return <Info className="w-5 h-5" />;
+      case 'urgent': return <AlertTriangle className="w-4 h-4" />;
+      case 'warning': return <AlertTriangle className="w-4 h-4" />;
+      default: return <Info className="w-4 h-4" />;
     }
   };
 
-  const getAnnouncementColor = (type: string) => {
+  const getTypeColor = (type: string) => {
     switch (type) {
-      case 'warning':
-        return 'from-yellow-500 to-yellow-600';
-      case 'urgent':
-        return 'from-red-500 to-red-600';
-      default:
-        return 'from-blue-500 to-blue-600';
+      case 'urgent': return 'text-red-600 bg-red-50 border-red-200';
+      case 'warning': return 'text-orange-600 bg-orange-50 border-orange-200';
+      default: return 'text-blue-600 bg-blue-50 border-blue-200';
     }
   };
 
   const getBadgeVariant = (type: string) => {
     switch (type) {
-      case 'warning':
-        return 'default';
-      case 'urgent':
-        return 'destructive';
-      default:
-        return 'secondary';
+      case 'urgent': return 'destructive';
+      case 'warning': return 'default';
+      default: return 'secondary';
     }
   };
 
@@ -218,36 +206,43 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
     );
   }
 
+  const announcementsByType = {
+    urgent: filteredAnnouncements.filter(a => a.type === 'urgent'),
+    warning: filteredAnnouncements.filter(a => a.type === 'warning'),
+    info: filteredAnnouncements.filter(a => a.type === 'info')
+  };
+
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-8">
+    <div className="container mx-auto px-4 py-8 max-w-6xl">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Announcement Board</h1>
-          <p className="text-gray-600">Stay updated with the latest hostel news and information</p>
+          <h1 className="text-2xl font-bold text-gray-900">Announcements</h1>
+          <p className="text-gray-600 text-sm">Stay updated with important hostel information</p>
         </div>
         
         {(userRole === 'staff' || userRole === 'admin') && (
           <Dialog open={showNewAnnouncementDialog} onOpenChange={setShowNewAnnouncementDialog}>
             <DialogTrigger asChild>
-              <Button className="flex items-center space-x-2">
+              <Button size="sm" className="flex items-center space-x-2">
                 <Plus className="w-4 h-4" />
                 <span>New Announcement</span>
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">
               <DialogHeader>
-                <DialogTitle>Create New Announcement</DialogTitle>
+                <DialogTitle>Create Announcement</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 pt-4">
                 <Input
-                  placeholder="Announcement title"
+                  placeholder="Title"
                   value={newAnnouncement.title}
                   onChange={(e) => setNewAnnouncement({...newAnnouncement, title: e.target.value})}
                 />
 
                 <Select value={newAnnouncement.type} onValueChange={(value) => setNewAnnouncement({...newAnnouncement, type: value})}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Announcement Type" />
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="info">Information</SelectItem>
@@ -257,13 +252,13 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
                 </Select>
 
                 <Textarea
-                  placeholder="Announcement message..."
+                  placeholder="Message content..."
                   value={newAnnouncement.message}
                   onChange={(e) => setNewAnnouncement({...newAnnouncement, message: e.target.value})}
-                  rows={4}
+                  rows={3}
                 />
 
-                <Button onClick={handleCreateAnnouncement} className="w-full">
+                <Button onClick={handleCreateAnnouncement} className="w-full" size="sm">
                   Create Announcement
                 </Button>
               </div>
@@ -272,94 +267,191 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
         )}
       </div>
 
-      {/* Filters */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Filter className="w-5 h-5" />
-            <span>Filter Announcements</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <Input
-                  placeholder="Search announcements..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </div>
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Filter by Type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="info">Information</SelectItem>
-                <SelectItem value="warning">Warning</SelectItem>
-                <SelectItem value="urgent">Urgent</SelectItem>
-              </SelectContent>
-            </Select>
+      {/* Search and Filter */}
+      <div className="flex flex-col md:flex-row gap-4 mb-6">
+        <div className="flex-1">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <Input
+              placeholder="Search announcements..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+              size="sm"
+            />
           </div>
-        </CardContent>
-      </Card>
+        </div>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Filter" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            <SelectItem value="urgent">Urgent</SelectItem>
+            <SelectItem value="warning">Warning</SelectItem>
+            <SelectItem value="info">Information</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
 
-      {/* Announcements List */}
-      <div className="space-y-6">
-        {filteredAnnouncements.length > 0 ? (
-          filteredAnnouncements.map((announcement) => (
-            <Card key={announcement.id} className="hover:shadow-lg transition-shadow">
-              <CardContent className="p-0">
-                <div className={`bg-gradient-to-r ${getAnnouncementColor(announcement.type)} text-white p-4 rounded-t-lg`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      {getAnnouncementIcon(announcement.type)}
-                      <h3 className="text-xl font-semibold">{announcement.title}</h3>
-                    </div>
-                    <Badge variant={getBadgeVariant(announcement.type)} className="bg-white/20 text-white border-white/30">
-                      {announcement.type.toUpperCase()}
-                    </Badge>
-                  </div>
-                </div>
-                <div className="p-6">
-                  <p className="text-gray-700 mb-4 leading-relaxed">{announcement.message}</p>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4 text-sm text-gray-500">
-                      <div className="flex items-center space-x-2">
-                        <Calendar className="w-4 h-4" />
-                        <span>{new Date(announcement.created_at).toLocaleDateString()}</span>
-                      </div>
-                      {announcement.profiles?.email && (
-                        <div className="flex items-center space-x-2">
-                          <MessageSquare className="w-4 h-4" />
-                          <span>By: {announcement.profiles.email}</span>
+      {/* Categorized Announcements */}
+      <div className="space-y-8">
+        {/* Urgent Announcements */}
+        {announcementsByType.urgent.length > 0 && (
+          <div>
+            <div className="flex items-center space-x-2 mb-4">
+              <AlertTriangle className="w-5 h-5 text-red-600" />
+              <h2 className="text-lg font-semibold text-red-600">Urgent Announcements</h2>
+              <Badge variant="destructive" className="text-xs">{announcementsByType.urgent.length}</Badge>
+            </div>
+            <div className="space-y-3">
+              {announcementsByType.urgent.map((announcement) => (
+                <Card key={announcement.id} className={`border-l-4 border-l-red-500 ${getTypeColor(announcement.type)}`}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2 mb-2">
+                          {getTypeIcon(announcement.type)}
+                          <h3 className="font-medium text-sm">{announcement.title}</h3>
+                          <Badge variant={getBadgeVariant(announcement.type)} className="text-xs">
+                            {announcement.type.toUpperCase()}
+                          </Badge>
                         </div>
+                        <p className="text-sm text-gray-700 mb-2">{announcement.message}</p>
+                        <div className="flex items-center space-x-3 text-xs text-gray-500">
+                          <div className="flex items-center space-x-1">
+                            <Calendar className="w-3 h-3" />
+                            <span>{new Date(announcement.created_at).toLocaleDateString()}</span>
+                          </div>
+                          {announcement.profiles?.email && (
+                            <span>By: {announcement.profiles.email}</span>
+                          )}
+                        </div>
+                      </div>
+                      {(userRole === 'staff' || userRole === 'admin') && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeactivateAnnouncement(announcement.id)}
+                          className="text-gray-400 hover:text-gray-600"
+                        >
+                          Remove
+                        </Button>
                       )}
                     </div>
-                    {(userRole === 'staff' || userRole === 'admin') && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDeactivateAnnouncement(announcement.id)}
-                      >
-                        Deactivate
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))
-        ) : (
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Warning Announcements */}
+        {announcementsByType.warning.length > 0 && (
+          <div>
+            <div className="flex items-center space-x-2 mb-4">
+              <AlertTriangle className="w-5 h-5 text-orange-600" />
+              <h2 className="text-lg font-semibold text-orange-600">Warnings</h2>
+              <Badge variant="default" className="text-xs">{announcementsByType.warning.length}</Badge>
+            </div>
+            <div className="space-y-3">
+              {announcementsByType.warning.map((announcement) => (
+                <Card key={announcement.id} className={`border-l-4 border-l-orange-500 ${getTypeColor(announcement.type)}`}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2 mb-2">
+                          {getTypeIcon(announcement.type)}
+                          <h3 className="font-medium text-sm">{announcement.title}</h3>
+                          <Badge variant={getBadgeVariant(announcement.type)} className="text-xs">
+                            {announcement.type.toUpperCase()}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-gray-700 mb-2">{announcement.message}</p>
+                        <div className="flex items-center space-x-3 text-xs text-gray-500">
+                          <div className="flex items-center space-x-1">
+                            <Calendar className="w-3 h-3" />
+                            <span>{new Date(announcement.created_at).toLocaleDateString()}</span>
+                          </div>
+                          {announcement.profiles?.email && (
+                            <span>By: {announcement.profiles.email}</span>
+                          )}
+                        </div>
+                      </div>
+                      {(userRole === 'staff' || userRole === 'admin') && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeactivateAnnouncement(announcement.id)}
+                          className="text-gray-400 hover:text-gray-600"
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Information Announcements */}
+        {announcementsByType.info.length > 0 && (
+          <div>
+            <div className="flex items-center space-x-2 mb-4">
+              <Info className="w-5 h-5 text-blue-600" />
+              <h2 className="text-lg font-semibold text-blue-600">Information</h2>
+              <Badge variant="secondary" className="text-xs">{announcementsByType.info.length}</Badge>
+            </div>
+            <div className="space-y-3">
+              {announcementsByType.info.map((announcement) => (
+                <Card key={announcement.id} className={`border-l-4 border-l-blue-500 ${getTypeColor(announcement.type)}`}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2 mb-2">
+                          {getTypeIcon(announcement.type)}
+                          <h3 className="font-medium text-sm">{announcement.title}</h3>
+                          <Badge variant={getBadgeVariant(announcement.type)} className="text-xs">
+                            {announcement.type.toUpperCase()}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-gray-700 mb-2">{announcement.message}</p>
+                        <div className="flex items-center space-x-3 text-xs text-gray-500">
+                          <div className="flex items-center space-x-1">
+                            <Calendar className="w-3 h-3" />
+                            <span>{new Date(announcement.created_at).toLocaleDateString()}</span>
+                          </div>
+                          {announcement.profiles?.email && (
+                            <span>By: {announcement.profiles.email}</span>
+                          )}
+                        </div>
+                      </div>
+                      {(userRole === 'staff' || userRole === 'admin') && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeactivateAnnouncement(announcement.id)}
+                          className="text-gray-400 hover:text-gray-600"
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {filteredAnnouncements.length === 0 && (
           <Card>
             <CardContent className="p-8 text-center">
-              <MessageSquare className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">No Announcements Found</h3>
-              <p className="text-gray-600">
+              <MessageSquare className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No Announcements</h3>
+              <p className="text-gray-600 text-sm">
                 {announcements.length === 0 
                   ? "No announcements have been posted yet."
                   : "No announcements match your current filters."

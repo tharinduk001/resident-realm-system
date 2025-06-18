@@ -134,7 +134,9 @@ const Index = () => {
       
       <main className="pt-16">
         {currentView === 'student-dashboard' && <StudentDashboard />}
-        {currentView === 'staff-dashboard' && <StaffDashboard />}
+        {currentView === 'staff-dashboard' && (
+          <StaffDashboard onNavigate={setCurrentView} />
+        )}
         {currentView === 'room-management' && <RoomManagement />}
         {currentView === 'requests' && <RequestSystem userRole={userProfile?.role || 'student'} />}
         {currentView === 'announcements' && <AnnouncementBoard userRole={userProfile?.role || 'student'} />}

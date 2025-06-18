@@ -1,21 +1,173 @@
 
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Home, Users, AlertTriangle, Key, TrendingUp, Clock } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
-const StaffDashboard = () => {
-  const recentReports = [
-    { id: 1, room: "B-201", issue: "Broken ceiling fan", student: "Alex Johnson", priority: "High", time: "2 hours ago" },
-    { id: 2, room: "C-315", issue: "Leaky faucet", student: "Sarah Wilson", priority: "Medium", time: "4 hours ago" },
-    { id: 3, room: "A-105", issue: "Flickering lights", student: "Mike Davis", priority: "Low", time: "1 day ago" },
-  ];
+interface StaffDashboardProps {
+  onNavigate?: (view: string) => void;
+}
 
-  const pendingRequests = [
-    { id: 1, type: "Temporary Room", student: "Emma Brown", reason: "Interview", status: "Pending" },
-    { id: 2, type: "Room Change", student: "John Smith", reason: "Floor preference", status: "Under Review" },
-    { id: 3, type: "Key Handover", student: "Lisa Chen", reason: "Going home", status: "Completed" },
-  ];
+const StaffDashboard = ({ onNavigate }: StaffDashboardProps) => {
+  const [recentReports, setRecentReports] = useState<any[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<any[]>([]);
+  const [stats, setStats] = useState({
+    totalRooms: 0,
+    occupiedRooms: 0,
+    activeStudents: 0,
+    pendingReports: 0,
+    keyHandovers: 0
+  });
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
+
+  const fetchDashboardData = async () => {
+    try {
+      // Fetch rooms data
+      const { data: roomsData, error: roomsError } = await supabase
+        .from('rooms')
+        .select('*');
+
+      if (roomsError) throw roomsError;
+
+      // Fetch requests data
+      const { data: requestsData, error: requestsError } = await supabase
+        .from('requests')
+        .select(`
+          *,
+          student_registrations!inner(user_id, full_name)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (requestsError) {
+        console.error('Error fetching requests:', requestsError);
+      }
+
+      // Fetch pending requests
+      const { data: pendingRequestsData, error: pendingError } = await supabase
+        .from('requests')
+        .select(`
+          *,
+          student_registrations!inner(user_id, full_name)
+        `)
+        .eq('status', 'Pending')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (pendingError) {
+        console.error('Error fetching pending requests:', pendingError);
+      }
+
+      // Fetch active students count
+      const { data: studentsData, error: studentsError } = await su pabase
+        .from('student_registrations')
+        .select('*')
+        .eq('status', 'approved')
+        .eq('graduation_status', 'active');
+
+      if (studentsError) {
+        console.error('Error fetching students:', studentsError);
+      }
+
+      // Calculate stats
+      const totalRooms = roomsData?.length || 0;
+      const occupiedRooms = roomsData?.filter(room => room.status === 'Occupied' || room.status === 'Full').length || 0;
+      const activeStudents = studentsData?.length || 0;
+      const pendingReports = requestsData?.filter(req => req.status === 'Pending' && req.type === 'Maintenance').length || 0;
+      const keyHandovers = requestsData?.filter(req => req.type === 'Key Handover').length || 0;
+
+      setStats({
+        totalRooms,
+        occupiedRooms,
+        activeStudents,
+        pendingReports,
+        keyHandovers
+      });
+
+      setRecentReports(requestsData?.filter(req => req.type === 'Maintenance').slice(0, 3) || []);
+      setPendingRequests(pendingRequestsData?.slice(0, 3) || []);
+
+    } catch (error: any) {
+      console.error('Error fetching dashboard data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load dashboard data",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateRequestStatus = async (requestId: string, newStatus: string) => {
+    try {
+      const updateData: any = { status: newStatus };
+      
+      if (newStatus === 'In Progress' || newStatus === 'Approved') {
+        const user = await supabase.auth.getUser();
+        updateData.assigned_to = user.data.user?.id;
+      }
+
+      const { error } = await supabase
+        .from('requests')
+        .update(updateData)
+        .eq('id', requestId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: `Request ${newStatus.toLowerCase()} successfully!`,
+      });
+
+      fetchDashboardData();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  };
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'High': return 'destructive';
+      case 'Medium': return 'default';
+      case 'Low': return 'secondary';
+      default: return 'secondary';
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Completed': return 'default';
+      case 'In Progress': return 'secondary';
+      case 'Approved': return 'secondary';
+      case 'Pending': return 'destructive';
+      case 'Rejected': return 'destructive';
+      default: return 'secondary';
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -31,8 +183,10 @@ const StaffDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-blue-100">Total Rooms</p>
-                <p className="text-2xl font-bold">98</p>
-                <p className="text-sm text-blue-200">87% Occupied</p>
+                <p className="text-2xl font-bold">{stats.totalRooms}</p>
+                <p className="text-sm text-blue-200">
+                  {stats.totalRooms > 0 ? Math.round((stats.occupiedRooms / stats.totalRooms) * 100) : 0}% Occupied
+                </p>
               </div>
               <Home className="w-8 h-8 text-blue-200" />
             </div>
@@ -44,8 +198,8 @@ const StaffDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-green-100">Active Students</p>
-                <p className="text-2xl font-bold">85</p>
-                <p className="text-sm text-green-200">2 New This Week</p>
+                <p className="text-2xl font-bold">{stats.activeStudents}</p>
+                <p className="text-sm text-green-200">Registered</p>
               </div>
               <Users className="w-8 h-8 text-green-200" />
             </div>
@@ -57,8 +211,8 @@ const StaffDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-red-100">Pending Reports</p>
-                <p className="text-2xl font-bold">5</p>
-                <p className="text-sm text-red-200">3 High Priority</p>
+                <p className="text-2xl font-bold">{stats.pendingReports}</p>
+                <p className="text-sm text-red-200">Maintenance</p>
               </div>
               <AlertTriangle className="w-8 h-8 text-red-200" />
             </div>
@@ -70,8 +224,8 @@ const StaffDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-purple-100">Key Handovers</p>
-                <p className="text-2xl font-bold">3</p>
-                <p className="text-sm text-purple-200">Today</p>
+                <p className="text-2xl font-bold">{stats.keyHandovers}</p>
+                <p className="text-sm text-purple-200">Total</p>
               </div>
               <Key className="w-8 h-8 text-purple-200" />
             </div>
@@ -88,29 +242,79 @@ const StaffDashboard = () => {
                 <AlertTriangle className="w-5 h-5" />
                 <span>Recent Reports</span>
               </div>
-              <Button variant="outline" size="sm">View All</Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => onNavigate?.('requests')}
+              >
+                View All
+              </Button>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {recentReports.map((report) => (
+            {recentReports.length > 0 ? recentReports.map((report) => (
               <div key={report.id} className="p-4 border border-gray-200 rounded-lg">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center space-x-2">
-                    <span className="font-medium text-gray-900">Room {report.room}</span>
-                    <Badge variant={report.priority === 'High' ? 'destructive' : report.priority === 'Medium' ? 'default' : 'secondary'}>
+                    <span className="font-medium text-gray-900">{report.type}</span>
+                    <Badge variant={getPriorityColor(report.priority)}>
                       {report.priority}
                     </Badge>
+                    <Badge variant={getStatusColor(report.status)}>
+                      {report.status}
+                    </Badge>
                   </div>
-                  <span className="text-xs text-gray-400">{report.time}</span>
+                  <span className="text-xs text-gray-400">
+                    {new Date(report.created_at).toLocaleDateString()}
+                  </span>
                 </div>
-                <p className="text-gray-600 text-sm mb-1">{report.issue}</p>
-                <p className="text-xs text-gray-500">Reported by: {report.student}</p>
-                <div className="flex space-x-2 mt-3">
-                  <Button size="sm" variant="outline">Assign</Button>
-                  <Button size="sm">Mark Resolved</Button>
-                </div>
+                <p className="text-gray-600 text-sm mb-1 line-clamp-2">{report.description}</p>
+                {report.room_number && (
+                  <p className="text-xs text-gray-500 mb-2">Room: {report.room_number}</p>
+                )}
+                <p className="text-xs text-gray-500 mb-3">
+                  Student: {report.student_registrations?.full_name || 'Unknown'}
+                </p>
+                {report.status === 'Pending' && (
+                  <div className="flex space-x-2">
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => handleUpdateRequestStatus(report.id, 'Rejected')}
+                    >
+                      Reject
+                    </Button>
+                    <Button 
+                      size="sm"
+                      onClick={() => handleUpdateRequestStatus(report.id, 'Approved')}
+                    >
+                      Approve
+                    </Button>
+                  </div>
+                )}
+                {report.status === 'Approved' && (
+                  <Button 
+                    size="sm"
+                    onClick={() => handleUpdateRequestStatus(report.id, 'In Progress')}
+                  >
+                    Start Work
+                  </Button>
+                )}
+                {report.status === 'In Progress' && (
+                  <Button 
+                    size="sm"
+                    onClick={() => handleUpdateRequestStatus(report.id, 'Completed')}
+                  >
+                    Mark Complete
+                  </Button>
+                )}
               </div>
-            ))}
+            )) : (
+              <div className="text-center text-gray-500 py-4">
+                <AlertTriangle className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                <p className="text-sm">No maintenance reports</p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -122,28 +326,58 @@ const StaffDashboard = () => {
                 <Clock className="w-5 h-5" />
                 <span>Pending Requests</span>
               </div>
-              <Button variant="outline" size="sm">View All</Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => onNavigate?.('requests')}
+              >
+                View All
+              </Button>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {pendingRequests.map((request) => (
+            {pendingRequests.length > 0 ? pendingRequests.map((request) => (
               <div key={request.id} className="p-4 border border-gray-200 rounded-lg">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-medium text-gray-900">{request.type}</span>
-                  <Badge variant={request.status === 'Completed' ? 'default' : 'secondary'}>
-                    {request.status}
-                  </Badge>
-                </div>
-                <p className="text-gray-600 text-sm mb-1">Student: {request.student}</p>
-                <p className="text-gray-600 text-sm mb-3">Reason: {request.reason}</p>
-                {request.status !== 'Completed' && (
-                  <div className="flex space-x-2">
-                    <Button size="sm" variant="outline">Reject</Button>
-                    <Button size="sm">Approve</Button>
+                  <div className="flex items-center space-x-2">
+                    <span className="font-medium text-gray-900">{request.type}</span>
+                    <Badge variant={getPriorityColor(request.priority)}>
+                      {request.priority}
+                    </Badge>
                   </div>
+                  <span className="text-xs text-gray-400">
+                    {new Date(request.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+                <p className="text-gray-600 text-sm mb-1 line-clamp-2">{request.description}</p>
+                {request.room_number && (
+                  <p className="text-xs text-gray-500 mb-2">Room: {request.room_number}</p>
                 )}
+                <p className="text-xs text-gray-500 mb-3">
+                  Student: {request.student_registrations?.full_name || 'Unknown'}
+                </p>
+                <div className="flex space-x-2">
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={() => handleUpdateRequestStatus(request.id, 'Rejected')}
+                  >
+                    Reject
+                  </Button>
+                  <Button 
+                    size="sm"
+                    onClick={() => handleUpdateRequestStatus(request.id, 'Approved')}
+                  >
+                    Approve
+                  </Button>
+                </div>
               </div>
-            ))}
+            )) : (
+              <div className="text-center text-gray-500 py-4">
+                <Clock className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                <p className="text-sm">No pending requests</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -177,7 +411,7 @@ const StaffDashboard = () => {
             </div>
             
             <div className="text-center p-4 bg-gray-50 rounded-lg">
-              <h4 className="font-semibold text-gray-900 mb-2">3rd Floor</h4>
+              <h4 className="font-semibent text-gray-900 mb-2">3rd Floor</h4>
               <div className="text-2xl font-bold text-orange-600 mb-1">24/28</div>
               <div className="text-sm text-gray-600">86% Occupied</div>
               <div className="w-full bg-gray-200 rounded-full h-2 mt-2">

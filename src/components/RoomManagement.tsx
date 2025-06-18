@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Home, Users, Search, Filter, UserPlus, Settings, GraduationCap } from "lucide-react";
+import { Home, Users, Search, Filter, UserPlus, Settings, GraduationCap, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -21,11 +20,13 @@ const RoomManagement = () => {
   const [showAssignDialog, setShowAssignDialog] = useState(false);
   const [showConditionDialog, setShowConditionDialog] = useState(false);
   const [showPassOutDialog, setShowPassOutDialog] = useState(false);
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<any>(null);
   const [availableStudents, setAvailableStudents] = useState<any[]>([]);
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [newCondition, setNewCondition] = useState('');
   const [studentsForPassOut, setStudentsForPassOut] = useState<any[]>([]);
+  const [conflictingStudents, setConflictingStudents] = useState<any[]>([]);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -55,26 +56,27 @@ const RoomManagement = () => {
       if (assignmentsError) throw assignmentsError;
 
       const studentIds = assignmentsData?.map(a => a.student_id).filter(Boolean) || [];
-      let profilesData: any[] = [];
+      let studentData: any[] = [];
       
       if (studentIds.length > 0) {
-        const { data: profiles, error: profilesError } = await supabase
-          .from('profiles')
-          .select('id, email')
-          .in('id', studentIds);
+        const { data: registrations, error: registrationsError } = await supabase
+          .from('student_registrations')
+          .select('user_id, full_name')
+          .in('user_id', studentIds)
+          .eq('status', 'approved');
 
-        if (profilesError) {
-          console.error('Error fetching profiles:', profilesError);
+        if (registrationsError) {
+          console.error('Error fetching student registrations:', registrationsError);
         } else {
-          profilesData = profiles || [];
+          studentData = registrations || [];
         }
       }
 
       const processedRooms = roomsData?.map(room => {
         const roomAssignments = assignmentsData?.filter(a => a.room_id === room.id) || [];
         const students = roomAssignments.map(assignment => {
-          const profile = profilesData.find(p => p.id === assignment.student_id);
-          return profile?.email || 'Unknown';
+          const student = studentData.find(s => s.user_id === assignment.student_id);
+          return student?.full_name || 'Unknown Student';
         });
         
         return {
@@ -100,12 +102,13 @@ const RoomManagement = () => {
 
   const fetchAvailableStudents = async () => {
     try {
-      const { data: studentsData, error: studentsError } = await supabase
-        .from('profiles')
-        .select('id, email')
-        .eq('role', 'student');
+      const { data: registrationsData, error: registrationsError } = await supabase
+        .from('student_registrations')
+        .select('user_id, full_name')
+        .eq('status', 'approved')
+        .eq('graduation_status', 'active');
 
-      if (studentsError) throw studentsError;
+      if (registrationsError) throw registrationsError;
 
       const { data: assignmentsData, error: assignmentsError } = await supabase
         .from('room_assignments')
@@ -114,20 +117,10 @@ const RoomManagement = () => {
 
       if (assignmentsError) throw assignmentsError;
 
-      const { data: registrationsData, error: registrationsError } = await supabase
-        .from('student_registrations')
-        .select('user_id')
-        .eq('status', 'approved')
-        .eq('graduation_status', 'active');
-
-      if (registrationsError) throw registrationsError;
-
       const assignedStudentIds = assignmentsData?.map(a => a.student_id) || [];
-      const approvedStudentIds = registrationsData?.map(r => r.user_id) || [];
 
-      const availableStudents = studentsData?.filter(student => 
-        approvedStudentIds.includes(student.id) && 
-        !assignedStudentIds.includes(student.id)
+      const availableStudents = registrationsData?.filter(student => 
+        !assignedStudentIds.includes(student.user_id)
       ) || [];
 
       setAvailableStudents(availableStudents);
@@ -136,73 +129,50 @@ const RoomManagement = () => {
     }
   };
 
-  const fetchStudentsForPassOut = async () => {
+  const checkForRoomConflicts = async (studentIds: string[]) => {
     try {
-      const { data: studentsData, error } = await supabase
-        .from('student_registrations')
+      const { data: existingAssignments, error } = await supabase
+        .from('room_assignments')
         .select(`
-          id,
-          user_id,
-          full_name,
-          academic_year,
-          graduation_status,
-          profiles!inner(email)
+          student_id,
+          room_id,
+          rooms(room_number)
         `)
-        .eq('status', 'approved')
-        .eq('graduation_status', 'active')
-        .gte('academic_year', 4);
+        .in('student_id', studentIds)
+        .eq('is_active', true);
 
       if (error) throw error;
-      setStudentsForPassOut(studentsData || []);
+
+      if (existingAssignments && existingAssignments.length > 0) {
+        const { data: studentNames, error: namesError } = await supabase
+          .from('student_registrations')
+          .select('user_id, full_name')
+          .in('user_id', existingAssignments.map(a => a.student_id));
+
+        if (namesError) throw namesError;
+
+        const conflicts = existingAssignments.map(assignment => {
+          const student = studentNames?.find(s => s.user_id === assignment.student_id);
+          return {
+            student_id: assignment.student_id,
+            student_name: student?.full_name || 'Unknown Student',
+            current_room: assignment.rooms?.room_number || 'Unknown Room'
+          };
+        });
+
+        setConflictingStudents(conflicts);
+        setShowConflictDialog(true);
+        return true;
+      }
+
+      return false;
     } catch (error: any) {
-      console.error('Error fetching students for pass out:', error);
+      console.error('Error checking room conflicts:', error);
+      return false;
     }
   };
 
-  const calculateFloorStats = (roomsData: any[]) => {
-    const stats: any = {};
-    
-    roomsData.forEach(room => {
-      if (!stats[room.floor]) {
-        stats[room.floor] = { total: 0, occupied: 0, vacant: 0, full: 0, maintenance: 0 };
-      }
-      
-      stats[room.floor].total++;
-      
-      if (room.status === 'Occupied') {
-        stats[room.floor].occupied++;
-      } else if (room.status === 'Vacant') {
-        stats[room.floor].vacant++;
-      } else if (room.status === 'Full') {
-        stats[room.floor].full++;
-      } else if (room.status === 'Maintenance' || room.condition === 'Maintenance' || room.condition === 'Under Repair') {
-        stats[room.floor].maintenance++;
-      }
-    });
-    
-    setFloorStats(stats);
-  };
-
-  const filterRooms = () => {
-    let filtered = rooms;
-
-    if (selectedFloor !== 'all') {
-      filtered = filtered.filter(room => room.floor === selectedFloor);
-    }
-
-    if (searchTerm) {
-      filtered = filtered.filter(room =>
-        room.room_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        room.students.some((student: string) => 
-          student.toLowerCase().includes(searchTerm.toLowerCase())
-        )
-      );
-    }
-
-    setFilteredRooms(filtered);
-  };
-
-  const handleAssignStudents = async () => {
+  const handleAssignStudents = async (forceAssign = false) => {
     if (selectedStudents.length === 0 || !selectedRoom) {
       toast({
         title: "Error",
@@ -221,7 +191,21 @@ const RoomManagement = () => {
       return;
     }
 
+    if (!forceAssign) {
+      const hasConflicts = await checkForRoomConflicts(selectedStudents);
+      if (hasConflicts) return;
+    }
+
     try {
+      // If forcing assignment, first deactivate existing assignments
+      if (forceAssign) {
+        await supabase
+          .from('room_assignments')
+          .update({ is_active: false, vacated_at: new Date().toISOString() })
+          .in('student_id', selectedStudents)
+          .eq('is_active', true);
+      }
+
       const assignments = selectedStudents.map(studentId => ({
         room_id: selectedRoom.id,
         student_id: studentId,
@@ -240,8 +224,10 @@ const RoomManagement = () => {
       });
 
       setShowAssignDialog(false);
+      setShowConflictDialog(false);
       setSelectedRoom(null);
       setSelectedStudents([]);
+      setConflictingStudents([]);
       fetchRooms();
       fetchAvailableStudents();
     } catch (error: any) {
@@ -349,6 +335,49 @@ const RoomManagement = () => {
         variant: "destructive"
       });
     }
+  };
+
+  const calculateFloorStats = (roomsData: any[]) => {
+    const stats: any = {};
+    
+    roomsData.forEach(room => {
+      if (!stats[room.floor]) {
+        stats[room.floor] = { total: 0, occupied: 0, vacant: 0, full: 0, maintenance: 0 };
+      }
+      
+      stats[room.floor].total++;
+      
+      if (room.status === 'Occupied') {
+        stats[room.floor].occupied++;
+      } else if (room.status === 'Vacant') {
+        stats[room.floor].vacant++;
+      } else if (room.status === 'Full') {
+        stats[room.floor].full++;
+      } else if (room.status === 'Maintenance' || room.condition === 'Maintenance' || room.condition === 'Under Repair') {
+        stats[room.floor].maintenance++;
+      }
+    });
+    
+    setFloorStats(stats);
+  };
+
+  const filterRooms = () => {
+    let filtered = rooms;
+
+    if (selectedFloor !== 'all') {
+      filtered = filtered.filter(room => room.floor === selectedFloor);
+    }
+
+    if (searchTerm) {
+      filtered = filtered.filter(room =>
+        room.room_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        room.students.some((student: string) => 
+          student.toLowerCase().includes(searchTerm.toLowerCase())
+        )
+      );
+    }
+
+    setFilteredRooms(filtered);
   };
 
   if (loading) {
@@ -558,23 +587,23 @@ const RoomManagement = () => {
               <>
                 <div className="max-h-48 overflow-y-auto border rounded p-2">
                   {availableStudents.map((student) => (
-                    <div key={student.id} className="flex items-center space-x-2 p-2">
+                    <div key={student.user_id} className="flex items-center space-x-2 p-2">
                       <input
                         type="checkbox"
-                        checked={selectedStudents.includes(student.id)}
+                        checked={selectedStudents.includes(student.user_id)}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setSelectedStudents([...selectedStudents, student.id]);
+                            setSelectedStudents([...selectedStudents, student.user_id]);
                           } else {
-                            setSelectedStudents(selectedStudents.filter(id => id !== student.id));
+                            setSelectedStudents(selectedStudents.filter(id => id !== student.user_id));
                           }
                         }}
                       />
-                      <span className="text-sm">{student.email}</span>
+                      <span className="text-sm">{student.full_name}</span>
                     </div>
                   ))}
                 </div>
-                <Button onClick={handleAssignStudents} className="w-full">
+                <Button onClick={() => handleAssignStudents(false)} className="w-full">
                   Assign {selectedStudents.length} Student(s)
                 </Button>
               </>
@@ -585,6 +614,51 @@ const RoomManagement = () => {
                 </AlertDescription>
               </Alert>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Room Conflict Dialog */}
+      <Dialog open={showConflictDialog} onOpenChange={setShowConflictDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center space-x-2">
+              <AlertTriangle className="w-5 h-5 text-orange-500" />
+              <span>Room Assignment Conflict</span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <Alert className="border-orange-200 bg-orange-50">
+              <AlertTriangle className="w-4 h-4 text-orange-600" />
+              <AlertDescription className="text-orange-800">
+                The following students are already assigned to other rooms:
+              </AlertDescription>
+            </Alert>
+            
+            <div className="space-y-2">
+              {conflictingStudents.map((conflict, index) => (
+                <div key={index} className="p-3 bg-gray-50 rounded-lg">
+                  <p className="font-medium text-sm">{conflict.student_name}</p>
+                  <p className="text-xs text-gray-600">Currently in Room {conflict.current_room}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex space-x-2">
+              <Button 
+                variant="outline" 
+                onClick={() => setShowConflictDialog(false)}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={() => handleAssignStudents(true)}
+                className="flex-1"
+              >
+                Move & Reassign
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
