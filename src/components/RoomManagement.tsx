@@ -39,6 +39,29 @@ const RoomManagement = () => {
     filterRooms();
   }, [rooms, selectedFloor, searchTerm]);
 
+  const fetchStudentsForPassOut = async () => {
+    try {
+      const { data: studentsData, error } = await supabase
+        .from('student_registrations')
+        .select(`
+          *,
+          profiles!inner(email)
+        `)
+        .eq('status', 'approved')
+        .eq('graduation_status', 'active')
+        .gte('academic_year', 4);
+
+      if (error) {
+        console.error('Error fetching students for pass out:', error);
+        return;
+      }
+
+      setStudentsForPassOut(studentsData || []);
+    } catch (error: any) {
+      console.error('Error in fetchStudentsForPassOut:', error);
+    }
+  };
+
   const fetchRooms = async () => {
     try {
       const { data: roomsData, error: roomsError } = await supabase
