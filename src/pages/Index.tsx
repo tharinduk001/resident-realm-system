@@ -10,6 +10,7 @@ import Navigation from "@/components/Navigation";
 import StudentDashboard from "@/components/StudentDashboard";
 import StaffDashboard from "@/components/StaffDashboard";
 import RoomManagement from "@/components/RoomManagement";
+import RoomSearch from "@/components/RoomSearch";
 import RequestSystem from "@/components/RequestSystem";
 import AnnouncementBoard from "@/components/AnnouncementBoard";
 import Auth from "@/components/Auth";
@@ -137,7 +138,7 @@ const Index = () => {
         {currentView === 'staff-dashboard' && (
           <StaffDashboard onNavigate={setCurrentView} />
         )}
-        {currentView === 'room-management' && <RoomManagement />}
+        {currentView === 'room-management' && <RoomSearch />}
         {currentView === 'requests' && <RequestSystem userRole={userProfile?.role || 'student'} />}
         {currentView === 'announcements' && <AnnouncementBoard userRole={userProfile?.role || 'student'} />}
         {currentView === 'registration-review' && isStaffOrAdmin && (
