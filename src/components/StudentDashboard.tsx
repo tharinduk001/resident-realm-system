@@ -11,6 +11,7 @@ const StudentDashboard = () => {
   const [studentData, setStudentData] = useState<any>(null);
   const [roomData, setRoomData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -19,8 +20,14 @@ const StudentDashboard = () => {
 
   const fetchStudentData = async () => {
     try {
+      console.log('Fetching student data...');
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      console.log('Current user:', user);
+      
+      if (!user) {
+        setError('No authenticated user found');
+        return;
+      }
 
       // Fetch student registration data
       const { data: registration, error: regError } = await supabase
@@ -29,7 +36,23 @@ const StudentDashboard = () => {
         .eq('user_id', user.id)
         .single();
 
-      if (regError) throw regError;
+      console.log('Registration data:', registration);
+      console.log('Registration error:', regError);
+
+      if (regError) {
+        if (regError.code === 'PGRST116') {
+          setError('No registration found. Please complete your registration.');
+        } else {
+          throw regError;
+        }
+        return;
+      }
+
+      if (registration.status !== 'approved') {
+        setError(`Registration status: ${registration.status}. Please wait for approval.`);
+        return;
+      }
+
       setStudentData(registration);
 
       // Fetch room assignment if exists
@@ -51,6 +74,9 @@ const StudentDashboard = () => {
         .eq('is_active', true)
         .maybeSingle();
 
+      console.log('Room assignment:', assignment);
+      console.log('Assignment error:', assignError);
+
       if (assignError && assignError.code !== 'PGRST116') {
         throw assignError;
       }
@@ -58,6 +84,7 @@ const StudentDashboard = () => {
       setRoomData(assignment);
     } catch (error: any) {
       console.error('Error fetching student data:', error);
+      setError(error.message || 'Failed to load data');
       toast({
         title: "Error",
         description: "Failed to load your data",
@@ -75,6 +102,44 @@ const StudentDashboard = () => {
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading your dashboard...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 flex items-center justify-center">
+        <Card className="max-w-md mx-auto">
+          <CardContent className="p-6 text-center">
+            <div className="text-red-500 mb-4">
+              <Clock className="w-16 h-16 mx-auto" />
+            </div>
+            <h2 className="text-xl font-semibold mb-2">Access Issue</h2>
+            <p className="text-gray-600">{error}</p>
+            <Button 
+              onClick={() => window.location.reload()} 
+              className="mt-4"
+            >
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!studentData) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 flex items-center justify-center">
+        <Card className="max-w-md mx-auto">
+          <CardContent className="p-6 text-center">
+            <div className="text-orange-500 mb-4">
+              <Clock className="w-16 h-16 mx-auto" />
+            </div>
+            <h2 className="text-xl font-semibold mb-2">Registration Required</h2>
+            <p className="text-gray-600">Please complete your student registration to access the dashboard.</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -136,7 +201,7 @@ const StudentDashboard = () => {
                   <Calendar className="w-5 h-5 text-blue-200" />
                   <div>
                     <p className="text-blue-100 text-sm">Academic Year</p>
-                    <p className="font-semibold">Year {studentData?.academic_year}</p>
+                    <p className="font-semibold">Year {studentData?.academic_year || 1}</p>
                   </div>
                 </div>
               </div>
@@ -162,7 +227,7 @@ const StudentDashboard = () => {
                 <div>
                   <p className="text-green-100 text-sm">Graduation Status</p>
                   <Badge className="bg-white text-green-600 font-semibold mt-1">
-                    {studentData?.graduation_status}
+                    {studentData?.graduation_status || 'Active'}
                   </Badge>
                 </div>
               </div>
