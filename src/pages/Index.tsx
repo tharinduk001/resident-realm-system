@@ -104,10 +104,10 @@ const Index = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent mx-auto"></div>
+          <p className="mt-6 text-lg font-medium text-gray-700">Loading your dashboard...</p>
         </div>
       </div>
     );
@@ -124,7 +124,7 @@ const Index = () => {
   const isStaffOrAdmin = userProfile?.role === 'staff' || userProfile?.role === 'admin';
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
       <Navigation 
         userRole={userProfile?.role || 'student'} 
         currentView={currentView} 
@@ -138,7 +138,7 @@ const Index = () => {
         {currentView === 'staff-dashboard' && (
           <StaffDashboard onNavigate={setCurrentView} />
         )}
-        {currentView === 'room-management' && <RoomSearch />}
+        {currentView === 'room-management' && <RoomManagement />}
         {currentView === 'requests' && <RequestSystem userRole={userProfile?.role || 'student'} />}
         {currentView === 'announcements' && <AnnouncementBoard userRole={userProfile?.role || 'student'} />}
         {currentView === 'registration-review' && isStaffOrAdmin && (

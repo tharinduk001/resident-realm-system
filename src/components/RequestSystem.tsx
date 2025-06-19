@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { AlertTriangle, Plus, Clock, CheckCircle, XCircle, Search, Filter, User, Calendar } from "lucide-react";
+import { AlertCircle, Plus, Search, Filter, Clock, User, Settings } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -18,101 +19,49 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
   const [requests, setRequests] = useState<any[]>([]);
   const [filteredRequests, setFilteredRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [stats, setStats] = useState({
-    total: 0,
-    pending: 0,
-    completed: 0,
-    highPriority: 0
-  });
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
   const [newRequest, setNewRequest] = useState({
     type: '',
     description: '',
-    priority: 'Medium',
-    room_number: ''
+    room_number: '',
+    priority: 'Medium'
   });
-  const [showNewRequestDialog, setShowNewRequestDialog] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     fetchRequests();
-  }, [userRole]);
+  }, []);
 
   useEffect(() => {
     filterRequests();
-  }, [requests, statusFilter, searchTerm]);
+  }, [requests, searchTerm, statusFilter, typeFilter, priorityFilter]);
 
   const fetchRequests = async () => {
     try {
-      const user = await supabase.auth.getUser();
-      if (!user.data.user) return;
+      let query = supabase
+        .from('requests')
+        .select(`
+          *,
+          profiles:user_id(email)
+        `)
+        .order('created_at', { ascending: false });
 
-      let requestsQuery = supabase.from('requests').select('*');
-
+      // If user is a student, only show their requests
       if (userRole === 'student') {
-        requestsQuery = requestsQuery.eq('user_id', user.data.user.id);
-      }
-
-      const { data: requestsData, error: requestsError } = await requestsQuery.order('created_at', { ascending: false });
-
-      if (requestsError) throw requestsError;
-
-      const userIds = new Set<string>();
-      requestsData?.forEach(request => {
-        if (request.user_id) userIds.add(request.user_id);
-        if (request.assigned_to) userIds.add(request.assigned_to);
-      });
-
-      let profilesData: any[] = [];
-      let studentNamesData: any[] = [];
-      
-      if (userIds.size > 0) {
-        const { data: profiles, error: profilesError } = await supabase
-          .from('profiles')
-          .select('id, email')
-          .in('id', Array.from(userIds));
-
-        if (profilesError) {
-          console.error('Error fetching profiles:', profilesError);
-        } else {
-          profilesData = profiles || [];
-        }
-
-        // Fetch student names from registrations
-        const { data: studentNames, error: studentNamesError } = await supabase
-          .from('student_registrations')
-          .select('user_id, full_name')
-          .in('user_id', Array.from(userIds));
-
-        if (studentNamesError) {
-          console.error('Error fetching student names:', studentNamesError);
-        } else {
-          studentNamesData = studentNames || [];
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          query = query.eq('user_id', user.id);
         }
       }
 
-      const processedRequests = requestsData?.map(request => {
-        const userProfile = profilesData.find(p => p.id === request.user_id);
-        const assignedProfile = profilesData.find(p => p.id === request.assigned_to);
-        const studentName = studentNamesData.find(s => s.user_id === request.user_id);
-        
-        return {
-          ...request,
-          profiles: userProfile ? { email: userProfile.email } : null,
-          assigned_profiles: assignedProfile ? { email: assignedProfile.email } : null,
-          student_name: studentName?.full_name || userProfile?.email || 'Unknown Student'
-        };
-      }) || [];
+      const { data, error } = await query;
 
-      setRequests(processedRequests);
-      
-      const total = processedRequests.length;
-      const pending = processedRequests.filter(r => r.status === 'Pending').length;
-      const completed = processedRequests.filter(r => r.status === 'Completed').length;
-      const highPriority = processedRequests.filter(r => r.priority === 'High').length;
-      
-      setStats({ total, pending, completed, highPriority });
+      if (error) throw error;
+      setRequests(data || []);
     } catch (error: any) {
       console.error('Error fetching requests:', error);
       toast({
@@ -128,44 +77,57 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
   const filterRequests = () => {
     let filtered = requests;
 
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(r => r.status.toLowerCase() === statusFilter.toLowerCase());
+    // Search filter
+    if (searchTerm) {
+      filtered = filtered.filter(request =>
+        request.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        request.room_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        request.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        request.profiles?.email?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
     }
 
-    if (searchTerm) {
-      filtered = filtered.filter(r => 
-        r.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.room_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.student_name?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+    // Status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(request => request.status === statusFilter);
+    }
+
+    // Type filter
+    if (typeFilter !== 'all') {
+      filtered = filtered.filter(request => request.type === typeFilter);
+    }
+
+    // Priority filter
+    if (priorityFilter !== 'all') {
+      filtered = filtered.filter(request => request.priority === priorityFilter);
     }
 
     setFilteredRequests(filtered);
   };
 
-  const handleSubmitRequest = async () => {
-    if (!newRequest.type || !newRequest.description) {
-      toast({
-        title: "Error",
-        description: "Please fill in all required fields",
-        variant: "destructive"
-      });
-      return;
-    }
-
+  const handleCreateRequest = async () => {
     try {
-      const user = await supabase.auth.getUser();
-      if (!user.data.user) return;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
+      if (!newRequest.type || !newRequest.description) {
+        toast({
+          title: "Error",
+          description: "Please fill in all required fields",
+          variant: "destructive"
+        });
+        return;
+      }
 
       const { error } = await supabase
         .from('requests')
         .insert({
-          user_id: user.data.user.id,
+          user_id: user.id,
           type: newRequest.type,
           description: newRequest.description,
+          room_number: newRequest.room_number || null,
           priority: newRequest.priority,
-          room_number: newRequest.room_number
+          status: 'Pending'
         });
 
       if (error) throw error;
@@ -175,8 +137,13 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
         description: "Request submitted successfully!",
       });
 
-      setNewRequest({ type: '', description: '', priority: 'Medium', room_number: '' });
-      setShowNewRequestDialog(false);
+      setShowCreateDialog(false);
+      setNewRequest({
+        type: '',
+        description: '',
+        room_number: '',
+        priority: 'Medium'
+      });
       fetchRequests();
     } catch (error: any) {
       toast({
@@ -187,25 +154,21 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
     }
   };
 
-  const handleUpdateRequestStatus = async (requestId: string, newStatus: string) => {
+  const handleUpdateStatus = async (requestId: string, newStatus: string) => {
     try {
-      const updateData: any = { status: newStatus };
-      
-      if (newStatus === 'In Progress' || newStatus === 'Approved') {
-        const user = await supabase.auth.getUser();
-        updateData.assigned_to = user.data.user?.id;
-      }
-
       const { error } = await supabase
         .from('requests')
-        .update(updateData)
+        .update({ 
+          status: newStatus,
+          updated_at: new Date().toISOString()
+        })
         .eq('id', requestId);
 
       if (error) throw error;
 
       toast({
         title: "Success",
-        description: `Request ${newStatus.toLowerCase()} successfully!`,
+        description: "Request status updated successfully!",
       });
 
       fetchRequests();
@@ -220,12 +183,11 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'Completed': return 'text-green-600 bg-green-50 border-green-200';
-      case 'In Progress': return 'text-blue-600 bg-blue-50 border-blue-200';
-      case 'Approved': return 'text-purple-600 bg-purple-50 border-purple-200';
-      case 'Pending': return 'text-orange-600 bg-orange-50 border-orange-200';
-      case 'Rejected': return 'text-red-600 bg-red-50 border-red-200';
-      default: return 'text-gray-600 bg-gray-50 border-gray-200';
+      case 'Pending': return 'secondary';
+      case 'In Progress': return 'default';
+      case 'Completed': return 'secondary';
+      case 'Rejected': return 'destructive';
+      default: return 'secondary';
     }
   };
 
@@ -240,7 +202,7 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
 
   if (loading) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading requests...</p>
@@ -249,336 +211,244 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
     );
   }
 
-  const requestsByStatus = {
-    pending: filteredRequests.filter(r => r.status === 'Pending'),
-    approved: filteredRequests.filter(r => r.status === 'Approved'),
-    inProgress: filteredRequests.filter(r => r.status === 'In Progress'),
-    completed: filteredRequests.filter(r => r.status === 'Completed'),
-    rejected: filteredRequests.filter(r => r.status === 'Rejected')
-  };
-
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            {userRole === 'student' ? 'My Requests' : 'Request Management'}
-          </h1>
-          <p className="text-gray-600 text-sm">
-            {userRole === 'student' 
-              ? 'Track and submit your maintenance requests'
-              : 'Manage all student requests and assignments'
-            }
-          </p>
-        </div>
-        
-        {userRole === 'student' && (
-          <Dialog open={showNewRequestDialog} onOpenChange={setShowNewRequestDialog}>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
+      <div className="container mx-auto px-6 py-12">
+        <div className="mb-8 flex justify-between items-center">
+          <div>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent mb-2">
+              Request Management
+            </h1>
+            <p className="text-gray-600 text-lg">Submit and track maintenance & service requests</p>
+          </div>
+          
+          <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
             <DialogTrigger asChild>
-              <Button className="flex items-center space-x-2">
-                <Plus className="w-4 h-4" />
-                <span>New Request</span>
+              <Button className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 shadow-lg text-white font-semibold px-6 py-3">
+                <Plus className="w-5 h-5 mr-2" />
+                New Request
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">
               <DialogHeader>
-                <DialogTitle>Submit Request</DialogTitle>
+                <DialogTitle className="text-xl font-bold text-gray-800">Create New Request</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 pt-4">
-                <Select value={newRequest.type} onValueChange={(value) => setNewRequest({...newRequest, type: value})}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Request Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Maintenance">Maintenance</SelectItem>
-                    <SelectItem value="Temporary Room">Temporary Room</SelectItem>
-                    <SelectItem value="Room Change">Room Change</SelectItem>
-                    <SelectItem value="Key Handover">Key Handover</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Request Type</label>
+                  <Select value={newRequest.type} onValueChange={(value) => setNewRequest({...newRequest, type: value})}>
+                    <SelectTrigger className="border-2 border-gray-200 focus:border-blue-500">
+                      <SelectValue placeholder="Select request type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Maintenance">Maintenance</SelectItem>
+                      <SelectItem value="Cleaning">Cleaning</SelectItem>
+                      <SelectItem value="Electrical">Electrical</SelectItem>
+                      <SelectItem value="Plumbing">Plumbing</SelectItem>
+                      <SelectItem value="Furniture">Furniture</SelectItem>
+                      <SelectItem value="Internet">Internet</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                <Input
-                  placeholder="Room Number (e.g., B-201)"
-                  value={newRequest.room_number}
-                  onChange={(e) => setNewRequest({...newRequest, room_number: e.target.value})}
-                />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Room Number (Optional)</label>
+                  <Input
+                    value={newRequest.room_number}
+                    onChange={(e) => setNewRequest({...newRequest, room_number: e.target.value})}
+                    placeholder="e.g., 101, 202"
+                    className="border-2 border-gray-200 focus:border-blue-500"
+                  />
+                </div>
 
-                <Select value={newRequest.priority} onValueChange={(value) => setNewRequest({...newRequest, priority: value})}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Low">Low Priority</SelectItem>
-                    <SelectItem value="Medium">Medium Priority</SelectItem>
-                    <SelectItem value="High">High Priority</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
+                  <Select value={newRequest.priority} onValueChange={(value) => setNewRequest({...newRequest, priority: value})}>
+                    <SelectTrigger className="border-2 border-gray-200 focus:border-blue-500">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Low">Low</SelectItem>
+                      <SelectItem value="Medium">Medium</SelectItem>
+                      <SelectItem value="High">High</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                <Textarea
-                  placeholder="Describe your request..."
-                  value={newRequest.description}
-                  onChange={(e) => setNewRequest({...newRequest, description: e.target.value})}
-                />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                  <Textarea
+                    value={newRequest.description}
+                    onChange={(e) => setNewRequest({...newRequest, description: e.target.value})}
+                    placeholder="Describe the issue or request in detail..."
+                    rows={4}
+                    className="border-2 border-gray-200 focus:border-blue-500"
+                  />
+                </div>
 
-                <Button onClick={handleSubmitRequest} className="w-full">
+                <Button 
+                  onClick={handleCreateRequest} 
+                  className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3"
+                >
                   Submit Request
                 </Button>
               </div>
             </DialogContent>
           </Dialog>
-        )}
-      </div>
-
-      {/* Statistics (Staff only) */}
-      {(userRole === 'staff' || userRole === 'admin') && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <Card className="bg-blue-50 border-blue-200">
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-blue-600">{stats.total}</div>
-              <div className="text-sm text-blue-600">Total</div>
-            </CardContent>
-          </Card>
-          <Card className="bg-orange-50 border-orange-200">
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-orange-600">{stats.pending}</div>
-              <div className="text-sm text-orange-600">Pending</div>
-            </CardContent>
-          </Card>
-          <Card className="bg-green-50 border-green-200">
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
-              <div className="text-sm text-green-600">Completed</div>
-            </CardContent>
-          </Card>
-          <Card className="bg-red-50 border-red-200">
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-red-600">{stats.highPriority}</div>
-              <div className="text-sm text-red-600">High Priority</div>
-            </CardContent>
-          </Card>
         </div>
-      )}
 
-      {/* Search and Filter */}
-      <div className="flex flex-col md:flex-row gap-4 mb-6">
-        <div className="flex-1">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <Input
-              placeholder="Search requests..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
-          </div>
+        {/* Filters */}
+        <Card className="mb-6 shadow-xl border-0 bg-white">
+          <CardHeader className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white">
+            <CardTitle className="flex items-center space-x-2 text-xl">
+              <Filter className="w-6 h-6" />
+              <span>Filter Requests</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="grid md:grid-cols-5 gap-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Input
+                  placeholder="Search requests..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 border-2 border-gray-200 focus:border-blue-500"
+                />
+              </div>
+
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="border-2 border-gray-200 focus:border-blue-500">
+                  <SelectValue placeholder="Filter by status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="Pending">Pending</SelectItem>
+                  <SelectItem value="In Progress">In Progress</SelectItem>
+                  <SelectItem value="Completed">Completed</SelectItem>
+                  <SelectItem value="Rejected">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="border-2 border-gray-200 focus:border-blue-500">
+                  <SelectValue placeholder="Filter by type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="Maintenance">Maintenance</SelectItem>
+                  <SelectItem value="Cleaning">Cleaning</SelectItem>
+                  <SelectItem value="Electrical">Electrical</SelectItem>
+                  <SelectItem value="Plumbing">Plumbing</SelectItem>
+                  <SelectItem value="Furniture">Furniture</SelectItem>
+                  <SelectItem value="Internet">Internet</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                <SelectTrigger className="border-2 border-gray-200 focus:border-blue-500">
+                  <SelectValue placeholder="Filter by priority" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Priorities</SelectItem>
+                  <SelectItem value="High">High</SelectItem>
+                  <SelectItem value="Medium">Medium</SelectItem>
+                  <SelectItem value="Low">Low</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <div className="text-lg font-semibold text-gray-700 flex items-center">
+                {filteredRequests.length} of {requests.length} requests
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Requests Grid */}
+        <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-6">
+          {filteredRequests.map((request) => (
+            <Card key={request.id} className="shadow-xl border-0 bg-white hover:shadow-2xl transition-all duration-300">
+              <CardHeader className="bg-gradient-to-r from-gray-50 to-blue-50 pb-3">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <CardTitle className="text-lg font-bold text-gray-800">{request.type}</CardTitle>
+                    {request.room_number && (
+                      <p className="text-sm text-gray-600 mt-1">Room: {request.room_number}</p>
+                    )}
+                  </div>
+                  <div className="flex flex-col space-y-2">
+                    <Badge variant={getStatusColor(request.status)}>
+                      {request.status}
+                    </Badge>
+                    <Badge variant={getPriorityColor(request.priority)} className="text-xs">
+                      {request.priority}
+                    </Badge>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4 p-6">
+                <p className="text-gray-700 text-sm">{request.description}</p>
+                
+                <div className="space-y-2 text-xs">
+                  {userRole !== 'student' && (
+                    <div className="flex items-center space-x-2">
+                      <User className="w-4 h-4 text-gray-400" />
+                      <span className="text-gray-600">{request.profiles?.email}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center space-x-2">
+                    <Clock className="w-4 h-4 text-gray-400" />
+                    <span className="text-gray-600">
+                      {new Date(request.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+
+                {userRole !== 'student' && (
+                  <div className="flex space-x-2 pt-4 border-t">
+                    {request.status === 'Pending' && (
+                      <>
+                        <Button 
+                          size="sm" 
+                          onClick={() => handleUpdateStatus(request.id, 'In Progress')}
+                          className="flex-1 bg-blue-500 hover:bg-blue-600"
+                        >
+                          Start
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          onClick={() => handleUpdateStatus(request.id, 'Rejected')}
+                          className="flex-1 border-red-200 text-red-600 hover:bg-red-50"
+                        >
+                          Reject
+                        </Button>
+                      </>
+                    )}
+                    {request.status === 'In Progress' && (
+                      <Button 
+                        size="sm" 
+                        onClick={() => handleUpdateStatus(request.id, 'Completed')}
+                        className="w-full bg-green-500 hover:bg-green-600"
+                      >
+                        Complete
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Filter" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="approved">Approved</SelectItem>
-            <SelectItem value="in progress">In Progress</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
-            <SelectItem value="rejected">Rejected</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Categorized Requests */}
-      <div className="space-y-8">
-        {/* Pending Requests */}
-        {requestsByStatus.pending.length > 0 && (
-          <div>
-            <div className="flex items-center space-x-2 mb-4">
-              <Clock className="w-5 h-5 text-orange-600" />
-              <h2 className="text-lg font-semibold text-orange-600">Pending Requests</h2>
-              <Badge variant="default" className="text-xs">{requestsByStatus.pending.length}</Badge>
-            </div>
-            <div className="space-y-3">
-              {requestsByStatus.pending.map((request) => (
-                <Card key={request.id} className={`border-l-4 border-l-orange-500 ${getStatusColor(request.status)}`}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <h3 className="font-medium text-sm">{request.type}</h3>
-                          <Badge variant={getPriorityColor(request.priority)} className="text-xs">
-                            {request.priority}
-                          </Badge>
-                          {request.room_number && (
-                            <Badge variant="outline" className="text-xs">
-                              Room {request.room_number}
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-gray-700 mb-2">{request.description}</p>
-                        <div className="flex items-center space-x-3 text-xs text-gray-500">
-                          <div className="flex items-center space-x-1">
-                            <Calendar className="w-3 h-3" />
-                            <span>{new Date(request.created_at).toLocaleDateString()}</span>
-                          </div>
-                          {(userRole === 'staff' || userRole === 'admin') && (
-                            <div className="flex items-center space-x-1">
-                              <User className="w-3 h-3" />
-                              <span>{request.student_name}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <div className="flex space-x-2 ml-4">
-                        {(userRole === 'staff' || userRole === 'admin') && (
-                          <>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => handleUpdateRequestStatus(request.id, 'Rejected')}
-                            >
-                              Reject
-                            </Button>
-                            <Button 
-                              size="sm"
-                              onClick={() => handleUpdateRequestStatus(request.id, 'Approved')}
-                            >
-                              Approve
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* In Progress Requests */}
-        {requestsByStatus.inProgress.length > 0 && (
-          <div>
-            <div className="flex items-center space-x-2 mb-4">
-              <AlertTriangle className="w-5 h-5 text-blue-600" />
-              <h2 className="text-lg font-semibold text-blue-600">In Progress</h2>
-              <Badge variant="secondary" className="text-xs">{requestsByStatus.inProgress.length}</Badge>
-            </div>
-            <div className="space-y-3">
-              {requestsByStatus.inProgress.map((request) => (
-                <Card key={request.id} className={`border-l-4 border-l-blue-500 ${getStatusColor(request.status)}`}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <h3 className="font-medium text-sm">{request.type}</h3>
-                          <Badge variant={getPriorityColor(request.priority)} className="text-xs">
-                            {request.priority}
-                          </Badge>
-                          {request.room_number && (
-                            <Badge variant="outline" className="text-xs">
-                              Room {request.room_number}
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-gray-700 mb-2">{request.description}</p>
-                        <div className="flex items-center space-x-3 text-xs text-gray-500">
-                          <div className="flex items-center space-x-1">
-                            <Calendar className="w-3 h-3" />
-                            <span>{new Date(request.created_at).toLocaleDateString()}</span>
-                          </div>
-                          {(userRole === 'staff' || userRole === 'admin') && (
-                            <div className="flex items-center space-x-1">
-                              <User className="w-3 h-3" />
-                              <span>{request.student_name}</span>
-                            </div>
-                          )}
-                          {request.assigned_profiles?.email && (
-                            <span>Assigned: {request.assigned_profiles.email}</span>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <div className="flex space-x-2 ml-4">
-                        {(userRole === 'staff' || userRole === 'admin') && (
-                          <Button 
-                            size="sm"
-                            onClick={() => handleUpdateRequestStatus(request.id, 'Completed')}
-                          >
-                            Complete
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Completed Requests */}
-        {requestsByStatus.completed.length > 0 && (
-          <div>
-            <div className="flex items-center space-x-2 mb-4">
-              <CheckCircle className="w-5 h-5 text-green-600" />
-              <h2 className="text-lg font-semibold text-green-600">Completed</h2>
-              <Badge variant="secondary" className="text-xs">{requestsByStatus.completed.length}</Badge>
-            </div>
-            <div className="space-y-3">
-              {requestsByStatus.completed.map((request) => (
-                <Card key={request.id} className={`border-l-4 border-l-green-500 ${getStatusColor(request.status)}`}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <h3 className="font-medium text-sm">{request.type}</h3>
-                          <Badge variant={getPriorityColor(request.priority)} className="text-xs">
-                            {request.priority}
-                          </Badge>
-                          {request.room_number && (
-                            <Badge variant="outline" className="text-xs">
-                              Room {request.room_number}
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-gray-700 mb-2">{request.description}</p>
-                        <div className="flex items-center space-x-3 text-xs text-gray-500">
-                          <div className="flex items-center space-x-1">
-                            <Calendar className="w-3 h-3" />
-                            <span>{new Date(request.created_at).toLocaleDateString()}</span>
-                          </div>
-                          {(userRole === 'staff' || userRole === 'admin') && (
-                            <div className="flex items-center space-x-1">
-                              <User className="w-3 h-3" />
-                              <span>{request.student_name}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
 
         {filteredRequests.length === 0 && (
-          <Card>
-            <CardContent className="p-8 text-center">
-              <AlertTriangle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No Requests</h3>
-              <p className="text-gray-600 text-sm">
-                {userRole === 'student' 
-                  ? "You haven't submitted any requests yet."
-                  : "No requests match your current filters."
-                }
-              </p>
-            </CardContent>
-          </Card>
+          <div className="text-center py-12">
+            <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">No requests found</h3>
+            <p className="text-gray-600">Try adjusting your filters or create a new request</p>
+          </div>
         )}
       </div>
     </div>
