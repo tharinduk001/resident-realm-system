@@ -1,8 +1,9 @@
+
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Home, Users, Clock, Calendar, MapPin, User, Phone, Mail, GraduationCap } from "lucide-react";
+import { Home, Users, Clock, Calendar, MapPin, User, Phone, Mail, GraduationCap, MessageSquare } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
