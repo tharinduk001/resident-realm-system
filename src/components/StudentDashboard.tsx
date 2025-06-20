@@ -20,42 +20,60 @@ const StudentDashboard = () => {
 
   const fetchStudentData = async () => {
     try {
-      console.log('Fetching student data...');
-      const { data: { user } } = await supabase.auth.getUser();
-      console.log('Current user:', user);
+      console.log('Starting to fetch student data...');
+      setLoading(true);
+      setError(null);
       
-      if (!user) {
-        setError('No authenticated user found');
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      console.log('Current user:', user);
+      console.log('User error:', userError);
+      
+      if (userError) {
+        console.error('User fetch error:', userError);
+        setError('Failed to get user information');
         return;
       }
 
-      // Fetch student registration data
+      if (!user) {
+        console.log('No authenticated user found');
+        setError('Please log in to access your dashboard');
+        return;
+      }
+
+      // Fetch student registration data with better error handling
+      console.log('Fetching registration for user:', user.id);
       const { data: registration, error: regError } = await supabase
         .from('student_registrations')
         .select('*')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
       console.log('Registration data:', registration);
       console.log('Registration error:', regError);
 
       if (regError) {
-        if (regError.code === 'PGRST116') {
-          setError('No registration found. Please complete your registration.');
-        } else {
-          throw regError;
-        }
+        console.error('Registration fetch error:', regError);
+        setError('Failed to load registration data');
+        return;
+      }
+
+      if (!registration) {
+        console.log('No registration found for user');
+        setError('No registration found. Please complete your registration.');
         return;
       }
 
       if (registration.status !== 'approved') {
+        console.log('Registration not approved, status:', registration.status);
         setError(`Registration status: ${registration.status}. Please wait for approval.`);
         return;
       }
 
+      console.log('Setting student data:', registration);
       setStudentData(registration);
 
       // Fetch room assignment if exists
+      console.log('Fetching room assignment for user:', user.id);
       const { data: assignment, error: assignError } = await supabase
         .from('room_assignments')
         .select(`
@@ -77,17 +95,19 @@ const StudentDashboard = () => {
       console.log('Room assignment:', assignment);
       console.log('Assignment error:', assignError);
 
-      if (assignError && assignError.code !== 'PGRST116') {
-        throw assignError;
+      if (assignError) {
+        console.error('Room assignment fetch error:', assignError);
+        // Don't set error for room assignment, as it's optional
+      } else {
+        setRoomData(assignment);
       }
 
-      setRoomData(assignment);
     } catch (error: any) {
-      console.error('Error fetching student data:', error);
-      setError(error.message || 'Failed to load data');
+      console.error('Unexpected error in fetchStudentData:', error);
+      setError('An unexpected error occurred. Please try refreshing the page.');
       toast({
         title: "Error",
-        description: "Failed to load your data",
+        description: "Failed to load your data. Please try again.",
         variant: "destructive"
       });
     } finally {
@@ -109,35 +129,22 @@ const StudentDashboard = () => {
   if (error) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 flex items-center justify-center">
-        <Card className="max-w-md mx-auto">
+        <Card className="max-w-md mx-auto shadow-xl">
           <CardContent className="p-6 text-center">
             <div className="text-red-500 mb-4">
               <Clock className="w-16 h-16 mx-auto" />
             </div>
             <h2 className="text-xl font-semibold mb-2">Access Issue</h2>
-            <p className="text-gray-600">{error}</p>
+            <p className="text-gray-600 mb-4">{error}</p>
             <Button 
-              onClick={() => window.location.reload()} 
-              className="mt-4"
+              onClick={() => {
+                setError(null);
+                fetchStudentData();
+              }} 
+              className="mt-4 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
             >
-              Retry
+              Try Again
             </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (!studentData) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 flex items-center justify-center">
-        <Card className="max-w-md mx-auto">
-          <CardContent className="p-6 text-center">
-            <div className="text-orange-500 mb-4">
-              <Clock className="w-16 h-16 mx-auto" />
-            </div>
-            <h2 className="text-xl font-semibold mb-2">Registration Required</h2>
-            <p className="text-gray-600">Please complete your student registration to access the dashboard.</p>
           </CardContent>
         </Card>
       </div>
@@ -150,7 +157,7 @@ const StudentDashboard = () => {
         {/* Welcome Header */}
         <div className="text-center mb-12">
           <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent mb-4">
-            Welcome Back, {studentData?.full_name?.split(' ')[0]}!
+            Welcome Back, {studentData?.full_name?.split(' ')[0] || 'Student'}!
           </h1>
           <p className="text-xl text-gray-600 font-medium">
             Your Student Dashboard
@@ -180,21 +187,21 @@ const StudentDashboard = () => {
                   <User className="w-5 h-5 text-blue-200" />
                   <div>
                     <p className="text-blue-100 text-sm">Full Name</p>
-                    <p className="font-semibold">{studentData?.full_name}</p>
+                    <p className="font-semibold">{studentData?.full_name || 'N/A'}</p>
                   </div>
                 </div>
                 <div className="flex items-center space-x-3">
                   <GraduationCap className="w-5 h-5 text-blue-200" />
                   <div>
                     <p className="text-blue-100 text-sm">ID Number</p>
-                    <p className="font-semibold">{studentData?.id_number}</p>
+                    <p className="font-semibold">{studentData?.id_number || 'N/A'}</p>
                   </div>
                 </div>
                 <div className="flex items-center space-x-3">
                   <Phone className="w-5 h-5 text-blue-200" />
                   <div>
                     <p className="text-blue-100 text-sm">Phone</p>
-                    <p className="font-semibold">{studentData?.phone}</p>
+                    <p className="font-semibold">{studentData?.phone || 'N/A'}</p>
                   </div>
                 </div>
                 <div className="flex items-center space-x-3">
@@ -221,7 +228,7 @@ const StudentDashboard = () => {
                 <div>
                   <p className="text-green-100 text-sm">Registration Status</p>
                   <Badge className="bg-white text-green-600 font-semibold mt-1">
-                    {studentData?.status}
+                    {studentData?.status || 'Unknown'}
                   </Badge>
                 </div>
                 <div>
@@ -251,29 +258,31 @@ const StudentDashboard = () => {
                     <MapPin className="w-5 h-5 text-orange-200" />
                     <div>
                       <p className="text-orange-100 text-sm">Room Number</p>
-                      <p className="text-2xl font-bold">{roomData.rooms.room_number}</p>
+                      <p className="text-2xl font-bold">{roomData.rooms?.room_number || 'N/A'}</p>
                     </div>
                   </div>
                 </div>
                 <div className="space-y-3">
                   <div>
                     <p className="text-orange-100 text-sm">Floor</p>
-                    <p className="font-semibold text-lg">{roomData.rooms.floor}</p>
+                    <p className="font-semibold text-lg">{roomData.rooms?.floor || 'N/A'}</p>
                   </div>
                   <div>
                     <p className="text-orange-100 text-sm">Room Type</p>
-                    <p className="font-semibold">{roomData.rooms.room_type}</p>
+                    <p className="font-semibold">{roomData.rooms?.room_type || 'N/A'}</p>
                   </div>
                 </div>
                 <div className="space-y-3">
                   <div>
                     <p className="text-orange-100 text-sm">Occupancy</p>
-                    <p className="font-semibold text-lg">{roomData.rooms.current_occupancy}/{roomData.rooms.max_occupancy}</p>
+                    <p className="font-semibold text-lg">
+                      {roomData.rooms?.current_occupancy || 0}/{roomData.rooms?.max_occupancy || 0}
+                    </p>
                   </div>
                   <div>
                     <p className="text-orange-100 text-sm">Condition</p>
                     <Badge className="bg-white text-orange-600 font-semibold">
-                      {roomData.rooms.condition}
+                      {roomData.rooms?.condition || 'Unknown'}
                     </Badge>
                   </div>
                 </div>

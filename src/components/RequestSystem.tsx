@@ -102,9 +102,9 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
   };
 
   const filterRequests = () => {
-    let filtered = requests;
+    let filtered = [...requests];
 
-    if (searchTerm) {
+    if (searchTerm.trim()) {
       filtered = filtered.filter(req =>
         req.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         req.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -124,6 +124,7 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
       filtered = filtered.filter(req => req.priority === priorityFilter);
     }
 
+    console.log('Filtered requests:', filtered);
     setFilteredRequests(filtered);
   };
 
@@ -173,12 +174,17 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
 
   const handleStatusUpdate = async (requestId: string, newStatus: string) => {
     try {
+      console.log('Updating request status:', requestId, newStatus);
+      
       const { error } = await supabase
         .from('requests')
         .update({ status: newStatus })
         .eq('id', requestId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Status update error:', error);
+        throw error;
+      }
 
       toast({
         title: "Success",
@@ -187,9 +193,10 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
 
       fetchRequests();
     } catch (error: any) {
+      console.error('Error updating status:', error);
       toast({
         title: "Error",
-        description: error.message,
+        description: `Failed to update status: ${error.message}`,
         variant: "destructive"
       });
     }
