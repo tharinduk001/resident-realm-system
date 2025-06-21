@@ -29,8 +29,8 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
   const [newRequest, setNewRequest] = useState({
     title: '',
     description: '',
-    type: 'maintenance',
-    priority: 'medium',
+    type: 'Maintenance',
+    priority: 'Medium',
     room_number: ''
   });
   const [stats, setStats] = useState({
@@ -158,8 +158,8 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
       setNewRequest({
         title: '',
         description: '',
-        type: 'maintenance',
-        priority: 'medium',
+        type: 'Maintenance',
+        priority: 'Medium',
         room_number: ''
       });
       fetchRequests();
@@ -217,11 +217,11 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
 
   const getPriorityBadge = (priority: string) => {
     switch (priority) {
-      case 'high':
+      case 'High':
         return <Badge variant="destructive">High</Badge>;
-      case 'medium':
+      case 'Medium':
         return <Badge variant="secondary">Medium</Badge>;
-      case 'low':
+      case 'Low':
         return <Badge variant="outline">Low</Badge>;
       default:
         return <Badge variant="secondary">Medium</Badge>;
@@ -337,10 +337,11 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Types</SelectItem>
-                    <SelectItem value="maintenance">Maintenance</SelectItem>
-                    <SelectItem value="cleaning">Cleaning</SelectItem>
-                    <SelectItem value="repair">Repair</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
+                    <SelectItem value="Maintenance">Maintenance</SelectItem>
+                    <SelectItem value="Temporary Room">Temporary Room</SelectItem>
+                    <SelectItem value="Room Change">Room Change</SelectItem>
+                    <SelectItem value="Key Handover">Key Handover</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={priorityFilter} onValueChange={setPriorityFilter}>
@@ -349,9 +350,9 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Priority</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="High">High</SelectItem>
+                    <SelectItem value="Medium">Medium</SelectItem>
+                    <SelectItem value="Low">Low</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -399,10 +400,11 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="maintenance">Maintenance</SelectItem>
-                        <SelectItem value="cleaning">Cleaning</SelectItem>
-                        <SelectItem value="repair">Repair</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
+                        <SelectItem value="Maintenance">Maintenance</SelectItem>
+                        <SelectItem value="Temporary Room">Temporary Room</SelectItem>
+                        <SelectItem value="Room Change">Room Change</SelectItem>
+                        <SelectItem value="Key Handover">Key Handover</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -414,9 +416,9 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="low">Low</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="high">High</SelectItem>
+                        <SelectItem value="Low">Low</SelectItem>
+                        <SelectItem value="Medium">Medium</SelectItem>
+                        <SelectItem value="High">High</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -425,7 +427,7 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
                 <div>
                   <Label className="text-sm font-medium">Room Number (Optional)</Label>
                   <Input
-                    placeholder="e.g., 101A"
+                    placeholder="e.g., B-201"
                     value={newRequest.room_number}
                     onChange={(e) => setNewRequest({ ...newRequest, room_number: e.target.value })}
                     className="mt-2"
