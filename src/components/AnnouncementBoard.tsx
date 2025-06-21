@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -39,13 +38,25 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
 
   const fetchAnnouncements = async () => {
     try {
+      console.log('Fetching announcements...');
       const { data: announcementsData, error: announcementsError } = await supabase
         .from('announcements')
         .select('*')
         .eq('is_active', true)
         .order('created_at', { ascending: false });
 
-      if (announcementsError) throw announcementsError;
+      console.log('Announcements data:', announcementsData);
+      console.log('Announcements error:', announcementsError);
+
+      if (announcementsError) {
+        console.error('Error fetching announcements:', announcementsError);
+        toast({
+          title: "Error",
+          description: `Failed to load announcements: ${announcementsError.message}`,
+          variant: "destructive"
+        });
+        return;
+      }
 
       const userIds = new Set<string>();
       announcementsData?.forEach(announcement => {
@@ -116,19 +127,44 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
     }
 
     try {
-      const user = await supabase.auth.getUser();
-      if (!user.data.user) return;
-
-      const { error } = await supabase
-        .from('announcements')
-        .insert({
-          title: newAnnouncement.title,
-          message: newAnnouncement.message,
-          type: newAnnouncement.type,
-          created_by: user.data.user.id
+      console.log('Creating announcement...');
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        toast({
+          title: "Error",
+          description: "Authentication required to create announcement",
+          variant: "destructive"
         });
+        return;
+      }
 
-      if (error) throw error;
+      const announcementData = {
+        title: newAnnouncement.title.trim(),
+        message: newAnnouncement.message.trim(),
+        type: newAnnouncement.type,
+        created_by: user.id,
+        is_active: true
+      };
+
+      console.log('Inserting announcement:', announcementData);
+
+      const { data, error } = await supabase
+        .from('announcements')
+        .insert(announcementData)
+        .select()
+        .single();
+
+      console.log('Insert result:', { data, error });
+
+      if (error) {
+        console.error('Error creating announcement:', error);
+        toast({
+          title: "Error",
+          description: `Failed to create announcement: ${error.message}`,
+          variant: "destructive"
+        });
+        return;
+      }
 
       toast({
         title: "Success",
@@ -139,9 +175,10 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
       setShowNewAnnouncementDialog(false);
       fetchAnnouncements();
     } catch (error: any) {
+      console.error('Unexpected error creating announcement:', error);
       toast({
         title: "Error",
-        description: error.message,
+        description: "An unexpected error occurred while creating the announcement",
         variant: "destructive"
       });
     }
@@ -149,12 +186,24 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
 
   const handleDeactivateAnnouncement = async (announcementId: string) => {
     try {
+      console.log('Deactivating announcement:', announcementId);
+      
       const { error } = await supabase
         .from('announcements')
         .update({ is_active: false })
         .eq('id', announcementId);
 
-      if (error) throw error;
+      console.log('Deactivation error:', error);
+
+      if (error) {
+        console.error('Error deactivating announcement:', error);
+        toast({
+          title: "Error",
+          description: `Failed to remove announcement: ${error.message}`,
+          variant: "destructive"
+        });
+        return;
+      }
 
       toast({
         title: "Success",
@@ -163,9 +212,10 @@ const AnnouncementBoard = ({ userRole }: AnnouncementBoardProps) => {
 
       fetchAnnouncements();
     } catch (error: any) {
+      console.error('Unexpected error deactivating announcement:', error);
       toast({
         title: "Error",
-        description: error.message,
+        description: "An unexpected error occurred while removing the announcement",
         variant: "destructive"
       });
     }

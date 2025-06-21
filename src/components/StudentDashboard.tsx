@@ -3,13 +3,14 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Home, Users, Clock, Calendar, MapPin, User, Phone, Mail, GraduationCap, MessageSquare } from "lucide-react";
+import { Home, Users, Clock, Calendar, MapPin, User, Phone, Mail, GraduationCap, MessageSquare, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
 const StudentDashboard = () => {
   const [studentData, setStudentData] = useState<any>(null);
   const [roomData, setRoomData] = useState<any>(null);
+  const [roommates, setRoommates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
@@ -26,7 +27,6 @@ const StudentDashboard = () => {
       
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       console.log('Current user:', user);
-      console.log('User error:', userError);
       
       if (userError) {
         console.error('User fetch error:', userError);
@@ -40,7 +40,7 @@ const StudentDashboard = () => {
         return;
       }
 
-      // Fetch student registration data with better error handling
+      // Fetch student registration data
       console.log('Fetching registration for user:', user.id);
       const { data: registration, error: regError } = await supabase
         .from('student_registrations')
@@ -72,13 +72,14 @@ const StudentDashboard = () => {
       console.log('Setting student data:', registration);
       setStudentData(registration);
 
-      // Fetch room assignment if exists
+      // Fetch room assignment
       console.log('Fetching room assignment for user:', user.id);
       const { data: assignment, error: assignError } = await supabase
         .from('room_assignments')
         .select(`
           *,
           rooms (
+            id,
             room_number,
             floor,
             room_type,
@@ -97,9 +98,30 @@ const StudentDashboard = () => {
 
       if (assignError) {
         console.error('Room assignment fetch error:', assignError);
-        // Don't set error for room assignment, as it's optional
-      } else {
+      } else if (assignment && assignment.rooms) {
         setRoomData(assignment);
+        
+        // Fetch roommates
+        const { data: roommatesData, error: roommatesError } = await supabase
+          .from('room_assignments')
+          .select(`
+            student_id,
+            student_registrations!room_assignments_student_id_fkey (
+              full_name,
+              phone,
+              academic_year
+            )
+          `)
+          .eq('room_id', assignment.rooms.id)
+          .eq('is_active', true)
+          .neq('student_id', user.id);
+
+        console.log('Roommates data:', roommatesData);
+        console.log('Roommates error:', roommatesError);
+
+        if (!roommatesError && roommatesData) {
+          setRoommates(roommatesData.filter(r => r.student_registrations));
+        }
       }
 
     } catch (error: any) {
@@ -143,6 +165,7 @@ const StudentDashboard = () => {
               }} 
               className="mt-4 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
             >
+              <RefreshCw className="w-4 h-4 mr-2" />
               Try Again
             </Button>
           </CardContent>
@@ -296,6 +319,38 @@ const StudentDashboard = () => {
             )}
           </CardContent>
         </Card>
+
+        {/* Roommates Section */}
+        {roomData && roommates.length > 0 && (
+          <Card className="shadow-2xl border-0 bg-gradient-to-br from-purple-500 to-pink-500 text-white mb-8">
+            <CardHeader>
+              <CardTitle className="text-2xl font-bold flex items-center">
+                <Users className="w-7 h-7 mr-3" />
+                Your Roommates
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {roommates.map((roommate, index) => (
+                  <div key={index} className="bg-white bg-opacity-20 rounded-lg p-4 backdrop-blur-sm">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 bg-white bg-opacity-30 rounded-full flex items-center justify-center">
+                        <User className="w-5 h-5 text-purple-200" />
+                      </div>
+                      <div>
+                        <p className="font-semibold">{roommate.student_registrations?.full_name}</p>
+                        <p className="text-purple-200 text-sm">Year {roommate.student_registrations?.academic_year}</p>
+                        {roommate.student_registrations?.phone && (
+                          <p className="text-purple-200 text-xs">{roommate.student_registrations.phone}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Quick Actions */}
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">

@@ -4,12 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { MessageSquare, Plus, Search, Clock, CheckCircle, XCircle, AlertTriangle, Wrench } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { AlertTriangle, Plus, Search, Filter, Calendar, User, MessageSquare, CheckCircle, XCircle, Clock } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -21,11 +20,11 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
   const [requests, setRequests] = useState<any[]>([]);
   const [filteredRequests, setFilteredRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
+  const [showNewRequestDialog, setShowNewRequestDialog] = useState(false);
   const [newRequest, setNewRequest] = useState({
     title: '',
     description: '',
@@ -34,10 +33,10 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
     room_number: ''
   });
   const [stats, setStats] = useState({
-    total: 0,
     pending: 0,
-    inProgress: 0,
-    completed: 0
+    in_progress: 0,
+    completed: 0,
+    rejected: 0
   });
   const { toast } = useToast();
 
@@ -52,48 +51,67 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
   const fetchRequests = async () => {
     try {
       console.log('Fetching requests...');
-      const { data: { user } } = await supabase.auth.getUser();
+      setLoading(true);
       
-      if (!user) {
-        console.error('No authenticated user');
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      console.log('Current user:', user);
+      
+      if (userError || !user) {
+        console.error('User authentication error:', userError);
+        toast({
+          title: "Authentication Error",
+          description: "Please log in to view requests",
+          variant: "destructive"
+        });
         return;
       }
 
-      let query = supabase.from('requests').select('*');
-      
-      // If student, only show their requests
-      if (userRole === 'student') {
+      let query = supabase
+        .from('requests')
+        .select(`
+          *,
+          profiles!requests_user_id_fkey (
+            email
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      // If user is not staff/admin, only show their own requests
+      if (userRole !== 'staff' && userRole !== 'admin') {
         query = query.eq('user_id', user.id);
       }
-      
-      const { data, error } = await query.order('created_at', { ascending: false });
 
-      console.log('Requests data:', data);
-      console.log('Requests error:', error);
+      const { data: requestsData, error: requestsError } = await query;
+      console.log('Requests data:', requestsData);
+      console.log('Requests error:', requestsError);
 
-      if (error) {
-        if (error.code === 'PGRST116') {
-          // Table doesn't exist or no data
-          setRequests([]);
-          return;
-        }
-        throw error;
+      if (requestsError) {
+        console.error('Error fetching requests:', requestsError);
+        toast({
+          title: "Error",
+          description: `Failed to load requests: ${requestsError.message}`,
+          variant: "destructive"
+        });
+        return;
       }
 
-      setRequests(data || []);
-      
+      const processedRequests = requestsData || [];
+      setRequests(processedRequests);
+
       // Calculate stats
-      const total = data?.length || 0;
-      const pending = data?.filter(req => req.status === 'pending').length || 0;
-      const inProgress = data?.filter(req => req.status === 'in_progress').length || 0;
-      const completed = data?.filter(req => req.status === 'completed').length || 0;
-      
-      setStats({ total, pending, inProgress, completed });
+      const newStats = {
+        pending: processedRequests.filter(r => r.status === 'pending').length,
+        in_progress: processedRequests.filter(r => r.status === 'in_progress').length,
+        completed: processedRequests.filter(r => r.status === 'completed').length,
+        rejected: processedRequests.filter(r => r.status === 'rejected').length
+      };
+      setStats(newStats);
+
     } catch (error: any) {
-      console.error('Error fetching requests:', error);
+      console.error('Unexpected error fetching requests:', error);
       toast({
         title: "Error",
-        description: "Failed to load requests",
+        description: "An unexpected error occurred while loading requests",
         variant: "destructive"
       });
     } finally {
@@ -102,59 +120,89 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
   };
 
   const filterRequests = () => {
-    let filtered = [...requests];
-
-    if (searchTerm.trim()) {
-      filtered = filtered.filter(req =>
-        req.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        req.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        req.room_number?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
+    let filtered = requests;
 
     if (statusFilter !== 'all') {
-      filtered = filtered.filter(req => req.status === statusFilter);
+      filtered = filtered.filter(r => r.status === statusFilter);
     }
 
     if (typeFilter !== 'all') {
-      filtered = filtered.filter(req => req.type === typeFilter);
+      filtered = filtered.filter(r => r.type === typeFilter);
     }
 
     if (priorityFilter !== 'all') {
-      filtered = filtered.filter(req => req.priority === priorityFilter);
+      filtered = filtered.filter(r => r.priority === priorityFilter);
     }
 
-    console.log('Filtered requests:', filtered);
+    if (searchTerm) {
+      filtered = filtered.filter(r =>
+        r.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.room_number?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
     setFilteredRequests(filtered);
   };
 
   const handleCreateRequest = async () => {
+    if (!newRequest.title || !newRequest.description) {
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields",
+        variant: "destructive"
+      });
+      return;
+    }
+
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      console.log('Creating request with data:', newRequest);
       
-      if (!user) {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
         toast({
           title: "Error",
-          description: "You must be logged in to create a request",
+          description: "Authentication required to create request",
           variant: "destructive"
         });
         return;
       }
 
-      const { error } = await supabase.from('requests').insert({
-        ...newRequest,
+      const requestData = {
+        title: newRequest.title.trim(),
+        description: newRequest.description.trim(),
+        type: newRequest.type,
+        priority: newRequest.priority,
+        room_number: newRequest.room_number.trim() || null,
         user_id: user.id,
         status: 'pending'
-      });
+      };
 
-      if (error) throw error;
+      console.log('Inserting request data:', requestData);
+
+      const { data, error } = await supabase
+        .from('requests')
+        .insert(requestData)
+        .select()
+        .single();
+
+      console.log('Insert result:', { data, error });
+
+      if (error) {
+        console.error('Error creating request:', error);
+        toast({
+          title: "Error",
+          description: `Failed to create request: ${error.message}`,
+          variant: "destructive"
+        });
+        return;
+      }
 
       toast({
         title: "Success",
         description: "Request created successfully!",
       });
 
-      setShowCreateDialog(false);
       setNewRequest({
         title: '',
         description: '',
@@ -162,28 +210,37 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
         priority: 'Medium',
         room_number: ''
       });
+      setShowNewRequestDialog(false);
       fetchRequests();
     } catch (error: any) {
+      console.error('Unexpected error creating request:', error);
       toast({
         title: "Error",
-        description: error.message,
+        description: "An unexpected error occurred while creating the request",
         variant: "destructive"
       });
     }
   };
 
-  const handleStatusUpdate = async (requestId: string, newStatus: string) => {
+  const handleUpdateStatus = async (requestId: string, newStatus: string) => {
     try {
-      console.log('Updating request status:', requestId, newStatus);
+      console.log('Updating request status:', { requestId, newStatus });
       
       const { error } = await supabase
         .from('requests')
         .update({ status: newStatus })
         .eq('id', requestId);
 
+      console.log('Status update error:', error);
+
       if (error) {
-        console.error('Status update error:', error);
-        throw error;
+        console.error('Error updating status:', error);
+        toast({
+          title: "Error",
+          description: `Failed to update status: ${error.message}`,
+          variant: "destructive"
+        });
+        return;
       }
 
       toast({
@@ -193,10 +250,10 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
 
       fetchRequests();
     } catch (error: any) {
-      console.error('Error updating status:', error);
+      console.error('Unexpected error updating status:', error);
       toast({
         title: "Error",
-        description: `Failed to update status: ${error.message}`,
+        description: "An unexpected error occurred while updating the status",
         variant: "destructive"
       });
     }
@@ -204,14 +261,16 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'completed':
-        return <Badge className="bg-green-100 text-green-800"><CheckCircle className="w-3 h-3 mr-1" />Completed</Badge>;
+      case 'pending':
+        return <Badge variant="secondary" className="flex items-center gap-1"><Clock className="w-3 h-3" />Pending</Badge>;
       case 'in_progress':
-        return <Badge className="bg-blue-100 text-blue-800"><Clock className="w-3 h-3 mr-1" />In Progress</Badge>;
+        return <Badge variant="default" className="flex items-center gap-1 bg-blue-500"><MessageSquare className="w-3 h-3" />In Progress</Badge>;
+      case 'completed':
+        return <Badge variant="default" className="flex items-center gap-1 bg-green-500"><CheckCircle className="w-3 h-3" />Completed</Badge>;
       case 'rejected':
-        return <Badge className="bg-red-100 text-red-800"><XCircle className="w-3 h-3 mr-1" />Rejected</Badge>;
+        return <Badge variant="destructive" className="flex items-center gap-1"><XCircle className="w-3 h-3" />Rejected</Badge>;
       default:
-        return <Badge className="bg-yellow-100 text-yellow-800"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
+        return <Badge variant="secondary">Unknown</Badge>;
     }
   };
 
@@ -241,129 +300,75 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
-      <div className="container mx-auto px-6 py-12">
+      <div className="container mx-auto px-6 py-12 max-w-7xl">
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent mb-4">
             Request System
           </h1>
           <p className="text-xl text-gray-600 font-medium">
-            Submit and manage maintenance requests
+            {userRole === 'staff' || userRole === 'admin' ? 'Manage all student requests' : 'Submit and track your requests'}
           </p>
         </div>
 
-        {/* Statistics Cards */}
-        <div className="grid md:grid-cols-4 gap-6 mb-8">
-          <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-xl border-0">
+        {/* Stats Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
+          <Card className="bg-gradient-to-br from-yellow-500 to-orange-500 text-white shadow-xl border-0">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-blue-100 text-sm">Total Requests</p>
-                  <p className="text-3xl font-bold">{stats.total}</p>
-                </div>
-                <MessageSquare className="w-10 h-10 text-blue-200" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white shadow-xl border-0">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-orange-100 text-sm">Pending</p>
+                  <p className="text-yellow-100 text-sm font-medium">Pending</p>
                   <p className="text-3xl font-bold">{stats.pending}</p>
                 </div>
-                <Clock className="w-10 h-10 text-orange-200" />
+                <Clock className="w-8 h-8 text-yellow-200" />
               </div>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white shadow-xl border-0">
+          <Card className="bg-gradient-to-br from-blue-500 to-indigo-500 text-white shadow-xl border-0">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-purple-100 text-sm">In Progress</p>
-                  <p className="text-3xl font-bold">{stats.inProgress}</p>
+                  <p className="text-blue-100 text-sm font-medium">In Progress</p>
+                  <p className="text-3xl font-bold">{stats.in_progress}</p>
                 </div>
-                <Wrench className="w-10 h-10 text-purple-200" />
+                <MessageSquare className="w-8 h-8 text-blue-200" />
               </div>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white shadow-xl border-0">
+          <Card className="bg-gradient-to-br from-green-500 to-emerald-500 text-white shadow-xl border-0">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-green-100 text-sm">Completed</p>
+                  <p className="text-green-100 text-sm font-medium">Completed</p>
                   <p className="text-3xl font-bold">{stats.completed}</p>
                 </div>
-                <CheckCircle className="w-10 h-10 text-green-200" />
+                <CheckCircle className="w-8 h-8 text-green-200" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-red-500 to-pink-500 text-white shadow-xl border-0">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-red-100 text-sm font-medium">Rejected</p>
+                  <p className="text-3xl font-bold">{stats.rejected}</p>
+                </div>
+                <XCircle className="w-8 h-8 text-red-200" />
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Actions and Filters */}
-        <div className="flex flex-col lg:flex-row gap-4 mb-8">
-          <Card className="flex-1 bg-white/80 backdrop-blur-sm shadow-xl border-0">
-            <CardContent className="p-6">
-              <div className="flex flex-col md:flex-row gap-4">
-                <div className="flex-1">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                    <Input
-                      placeholder="Search requests..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-10 border-gray-200 focus:border-purple-400 focus:ring-purple-400"
-                    />
-                  </div>
-                </div>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-40 border-gray-200 focus:border-purple-400 focus:ring-purple-400">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                    <SelectItem value="rejected">Rejected</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={typeFilter} onValueChange={setTypeFilter}>
-                  <SelectTrigger className="w-40 border-gray-200 focus:border-purple-400 focus:ring-purple-400">
-                    <SelectValue placeholder="Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
-                    <SelectItem value="Maintenance">Maintenance</SelectItem>
-                    <SelectItem value="Temporary Room">Temporary Room</SelectItem>
-                    <SelectItem value="Room Change">Room Change</SelectItem>
-                    <SelectItem value="Key Handover">Key Handover</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-                  <SelectTrigger className="w-40 border-gray-200 focus:border-purple-400 focus:ring-purple-400">
-                    <SelectValue placeholder="Priority" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Priority</SelectItem>
-                    <SelectItem value="High">High</SelectItem>
-                    <SelectItem value="Medium">Medium</SelectItem>
-                    <SelectItem value="Low">Low</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        {/* Action Button */}
+        <div className="flex justify-center mb-8">
+          <Dialog open={showNewRequestDialog} onOpenChange={setShowNewRequestDialog}>
             <DialogTrigger asChild>
-              <Button className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white shadow-xl h-full px-8">
-                <Plus className="w-4 h-4 mr-2" />
-                New Request
+              <Button className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white shadow-xl px-8 py-3">
+                <Plus className="w-5 h-5 mr-2" />
+                Create New Request
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-md bg-white">
@@ -372,22 +377,11 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
               </DialogHeader>
               <div className="space-y-4 pt-4">
                 <div>
-                  <Label className="text-sm font-medium">Title</Label>
+                  <Label className="text-sm font-medium">Title *</Label>
                   <Input
-                    placeholder="Brief description of the issue"
+                    placeholder="Brief description of your request"
                     value={newRequest.title}
                     onChange={(e) => setNewRequest({ ...newRequest, title: e.target.value })}
-                    className="mt-2"
-                  />
-                </div>
-
-                <div>
-                  <Label className="text-sm font-medium">Description</Label>
-                  <Textarea
-                    placeholder="Detailed description of the request"
-                    value={newRequest.description}
-                    onChange={(e) => setNewRequest({ ...newRequest, description: e.target.value })}
-                    rows={3}
                     className="mt-2"
                   />
                 </div>
@@ -434,90 +428,167 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
                   />
                 </div>
 
-                <div className="flex space-x-3 pt-4">
-                  <Button 
-                    onClick={handleCreateRequest} 
-                    className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
-                    disabled={!newRequest.title || !newRequest.description}
-                  >
-                    Create Request
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    onClick={() => setShowCreateDialog(false)}
-                    className="flex-1"
-                  >
-                    Cancel
-                  </Button>
+                <div>
+                  <Label className="text-sm font-medium">Description *</Label>
+                  <Textarea
+                    placeholder="Detailed description of your request..."
+                    value={newRequest.description}
+                    onChange={(e) => setNewRequest({ ...newRequest, description: e.target.value })}
+                    className="mt-2"
+                    rows={4}
+                  />
                 </div>
+
+                <Button onClick={handleCreateRequest} className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600">
+                  Create Request
+                </Button>
               </div>
             </DialogContent>
           </Dialog>
         </div>
 
-        {/* Requests Table */}
-        <Card className="bg-white/90 backdrop-blur-sm shadow-2xl border-0">
-          <CardHeader className="bg-gradient-to-r from-blue-500 to-purple-500 text-white">
-            <CardTitle className="flex items-center text-xl">
-              <MessageSquare className="w-6 h-6 mr-2" />
-              Requests ({filteredRequests.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-gray-50">
-                    <TableHead className="font-semibold">Title</TableHead>
-                    <TableHead className="font-semibold">Type</TableHead>
-                    <TableHead className="font-semibold">Priority</TableHead>
-                    <TableHead className="font-semibold">Status</TableHead>
-                    <TableHead className="font-semibold">Room</TableHead>
-                    <TableHead className="font-semibold">Created</TableHead>
-                    {(userRole === 'staff' || userRole === 'admin') && <TableHead className="font-semibold">Actions</TableHead>}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredRequests.map((request) => (
-                    <TableRow key={request.id} className="hover:bg-blue-50">
-                      <TableCell className="font-medium">{request.title}</TableCell>
-                      <TableCell className="capitalize">{request.type}</TableCell>
-                      <TableCell>{getPriorityBadge(request.priority)}</TableCell>
-                      <TableCell>{getStatusBadge(request.status)}</TableCell>
-                      <TableCell>{request.room_number || '-'}</TableCell>
-                      <TableCell>{new Date(request.created_at).toLocaleDateString()}</TableCell>
-                      {(userRole === 'staff' || userRole === 'admin') && (
-                        <TableCell>
-                          <Select
-                            value={request.status}
-                            onValueChange={(value) => handleStatusUpdate(request.id, value)}
-                          >
-                            <SelectTrigger className="w-32">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="pending">Pending</SelectItem>
-                              <SelectItem value="in_progress">In Progress</SelectItem>
-                              <SelectItem value="completed">Completed</SelectItem>
-                              <SelectItem value="rejected">Rejected</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            
-            {filteredRequests.length === 0 && (
-              <div className="text-center py-12">
-                <MessageSquare className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500 text-lg">No requests found matching your criteria.</p>
+        {/* Search and Filter */}
+        <Card className="mb-8 bg-white/80 backdrop-blur-sm shadow-xl border-0">
+          <CardContent className="p-6">
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex-1">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <Input
+                    placeholder="Search requests..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
               </div>
-            )}
+              <div className="flex gap-2">
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="rejected">Rejected</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder="Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="Maintenance">Maintenance</SelectItem>
+                    <SelectItem value="Temporary Room">Temporary Room</SelectItem>
+                    <SelectItem value="Room Change">Room Change</SelectItem>
+                    <SelectItem value="Key Handover">Key Handover</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder="Priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Priority</SelectItem>
+                    <SelectItem value="High">High</SelectItem>
+                    <SelectItem value="Medium">Medium</SelectItem>
+                    <SelectItem value="Low">Low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </CardContent>
         </Card>
+
+        {/* Requests List */}
+        <div className="space-y-4">
+          {filteredRequests.length === 0 ? (
+            <Card className="bg-white/90 backdrop-blur-sm shadow-xl border-0">
+              <CardContent className="p-12 text-center">
+                <div className="w-20 h-20 bg-gradient-to-br from-gray-200 to-gray-300 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <AlertTriangle className="w-10 h-10 text-gray-500" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-700 mb-3">No Requests Found</h3>
+                <p className="text-gray-500 text-lg">
+                  {requests.length === 0 
+                    ? "No requests have been submitted yet."
+                    : "No requests match your current filters."
+                  }
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            filteredRequests.map((request) => (
+              <Card key={request.id} className="bg-white/90 backdrop-blur-sm shadow-xl border-0 hover:shadow-2xl transition-shadow">
+                <CardContent className="p-6">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-3 mb-3">
+                        <h3 className="font-bold text-lg text-gray-800">{request.title}</h3>
+                        {getStatusBadge(request.status)}
+                        {getPriorityBadge(request.priority)}
+                        <Badge variant="outline">{request.type}</Badge>
+                      </div>
+                      <p className="text-gray-600 mb-4 leading-relaxed">{request.description}</p>
+                      <div className="flex items-center space-x-6 text-sm text-gray-500">
+                        <div className="flex items-center space-x-1">
+                          <Calendar className="w-4 h-4" />
+                          <span>{new Date(request.created_at).toLocaleDateString()}</span>
+                        </div>
+                        {request.room_number && (
+                          <div className="flex items-center space-x-1">
+                            <span>Room: {request.room_number}</span>
+                          </div>
+                        )}
+                        {request.profiles?.email && (
+                          <div className="flex items-center space-x-1">
+                            <User className="w-4 h-4" />
+                            <span>{request.profiles.email}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {(userRole === 'staff' || userRole === 'admin') && (
+                      <div className="flex flex-col gap-2 ml-4">
+                        {request.status === 'pending' && (
+                          <>
+                            <Button
+                              onClick={() => handleUpdateStatus(request.id, 'in_progress')}
+                              size="sm"
+                              className="bg-blue-500 hover:bg-blue-600 text-white"
+                            >
+                              Start Progress
+                            </Button>
+                            <Button
+                              onClick={() => handleUpdateStatus(request.id, 'rejected')}
+                              variant="destructive"
+                              size="sm"
+                            >
+                              Reject
+                            </Button>
+                          </>
+                        )}
+                        {request.status === 'in_progress' && (
+                          <Button
+                            onClick={() => handleUpdateStatus(request.id, 'completed')}
+                            size="sm"
+                            className="bg-green-500 hover:bg-green-600 text-white"
+                          >
+                            Mark Complete
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );
