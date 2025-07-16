@@ -101,27 +101,30 @@ const StudentDashboard = () => {
       } else if (assignment && assignment.rooms) {
         setRoomData(assignment);
         
-        // Fetch roommates
-        const { data: roommatesData, error: roommatesError } = await supabase
-          .from('room_assignments')
-          .select(`
-            student_id,
-            student_registrations!room_assignments_student_id_fkey (
-              full_name,
-              phone,
-              academic_year
-            )
-          `)
-          .eq('room_id', assignment.rooms.id)
-          .eq('is_active', true)
-          .neq('student_id', user.id);
+      // Fetch roommates
+      const { data: roommatesData, error: roommatesError } = await supabase
+        .from('room_assignments')
+        .select('student_id')
+        .eq('room_id', assignment.rooms.id)
+        .eq('is_active', true)
+        .neq('student_id', user.id);
+
+      if (!roommatesError && roommatesData && roommatesData.length > 0) {
+        // Get roommate details
+        const roommateIds = roommatesData.map(r => r.student_id);
+        const { data: roommateDetails } = await supabase
+          .from('student_registrations')
+          .select('user_id, full_name, phone, academic_year')
+          .in('user_id', roommateIds);
 
         console.log('Roommates data:', roommatesData);
+        console.log('Roommate details:', roommateDetails);
         console.log('Roommates error:', roommatesError);
 
-        if (!roommatesError && roommatesData) {
-          setRoommates(roommatesData.filter(r => r.student_registrations));
+        if (roommateDetails) {
+          setRoommates(roommateDetails);
         }
+      }
       }
 
     } catch (error: any) {
@@ -338,10 +341,10 @@ const StudentDashboard = () => {
                         <User className="w-5 h-5 text-purple-200" />
                       </div>
                       <div>
-                        <p className="font-semibold">{roommate.student_registrations?.full_name}</p>
-                        <p className="text-purple-200 text-sm">Year {roommate.student_registrations?.academic_year}</p>
-                        {roommate.student_registrations?.phone && (
-                          <p className="text-purple-200 text-xs">{roommate.student_registrations.phone}</p>
+                        <p className="font-semibold">{roommate.full_name}</p>
+                        <p className="text-purple-200 text-sm">Year {roommate.academic_year}</p>
+                        {roommate.phone && (
+                          <p className="text-purple-200 text-xs">{roommate.phone}</p>
                         )}
                       </div>
                     </div>
