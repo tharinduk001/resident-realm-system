@@ -69,10 +69,7 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
       let query = supabase
         .from('requests')
         .select(`
-          *,
-          profiles!requests_user_id_fkey (
-            email
-          )
+          *
         `)
         .order('created_at', { ascending: false });
 
@@ -100,10 +97,10 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
 
       // Calculate stats
       const newStats = {
-        pending: processedRequests.filter(r => r.status === 'pending').length,
-        in_progress: processedRequests.filter(r => r.status === 'in_progress').length,
-        completed: processedRequests.filter(r => r.status === 'completed').length,
-        rejected: processedRequests.filter(r => r.status === 'rejected').length
+        pending: processedRequests.filter(r => r.status === 'Pending').length,
+        in_progress: processedRequests.filter(r => r.status === 'In Progress').length,
+        completed: processedRequests.filter(r => r.status === 'Completed').length,
+        rejected: processedRequests.filter(r => r.status === 'Rejected').length
       };
       setStats(newStats);
 
@@ -169,13 +166,12 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
       }
 
       const requestData = {
-        title: newRequest.title.trim(),
         description: newRequest.description.trim(),
         type: newRequest.type,
         priority: newRequest.priority,
         room_number: newRequest.room_number.trim() || null,
         user_id: user.id,
-        status: 'pending'
+        status: 'Pending'
       };
 
       console.log('Inserting request data:', requestData);
@@ -261,13 +257,13 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'pending':
+      case 'Pending':
         return <Badge variant="secondary" className="flex items-center gap-1"><Clock className="w-3 h-3" />Pending</Badge>;
-      case 'in_progress':
+      case 'In Progress':
         return <Badge variant="default" className="flex items-center gap-1 bg-blue-500"><MessageSquare className="w-3 h-3" />In Progress</Badge>;
-      case 'completed':
+      case 'Completed':
         return <Badge variant="default" className="flex items-center gap-1 bg-green-500"><CheckCircle className="w-3 h-3" />Completed</Badge>;
-      case 'rejected':
+      case 'Rejected':
         return <Badge variant="destructive" className="flex items-center gap-1"><XCircle className="w-3 h-3" />Rejected</Badge>;
       default:
         return <Badge variant="secondary">Unknown</Badge>;
@@ -469,10 +465,10 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                    <SelectItem value="rejected">Rejected</SelectItem>
+                    <SelectItem value="Pending">Pending</SelectItem>
+                    <SelectItem value="In Progress">In Progress</SelectItem>
+                    <SelectItem value="Completed">Completed</SelectItem>
+                    <SelectItem value="Rejected">Rejected</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={typeFilter} onValueChange={setTypeFilter}>
@@ -554,17 +550,17 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
                     </div>
                     {(userRole === 'staff' || userRole === 'admin') && (
                       <div className="flex flex-col gap-2 ml-4">
-                        {request.status === 'pending' && (
+                        {request.status === 'Pending' && (
                           <>
                             <Button
-                              onClick={() => handleUpdateStatus(request.id, 'in_progress')}
+                              onClick={() => handleUpdateStatus(request.id, 'In Progress')}
                               size="sm"
                               className="bg-blue-500 hover:bg-blue-600 text-white"
                             >
                               Start Progress
                             </Button>
                             <Button
-                              onClick={() => handleUpdateStatus(request.id, 'rejected')}
+                              onClick={() => handleUpdateStatus(request.id, 'Rejected')}
                               variant="destructive"
                               size="sm"
                             >
@@ -572,9 +568,9 @@ const RequestSystem = ({ userRole }: RequestSystemProps) => {
                             </Button>
                           </>
                         )}
-                        {request.status === 'in_progress' && (
+                        {request.status === 'In Progress' && (
                           <Button
-                            onClick={() => handleUpdateStatus(request.id, 'completed')}
+                            onClick={() => handleUpdateStatus(request.id, 'Completed')}
                             size="sm"
                             className="bg-green-500 hover:bg-green-600 text-white"
                           >
