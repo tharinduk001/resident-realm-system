@@ -72,26 +72,32 @@ const StudentDashboard = () => {
       console.log('Setting student data:', registration);
       setStudentData(registration);
 
-      // Fetch room assignment
+      // Fetch room assignment with proper join
       console.log('Fetching room assignment for user:', user.id);
-      const { data: assignment, error: assignError } = await supabase
+      const { data: assignments, error: assignError } = await supabase
         .from('room_assignments')
-        .select(`
-          *,
-          rooms (
-            id,
-            room_number,
-            floor,
-            room_type,
-            room_size,
-            max_occupancy,
-            current_occupancy,
-            condition
-          )
-        `)
+        .select('*')
         .eq('student_id', user.id)
-        .eq('is_active', true)
-        .maybeSingle();
+        .eq('is_active', true);
+
+      let assignment = null;
+      if (assignments && assignments.length > 0) {
+        const roomAssignment = assignments[0];
+        
+        // Fetch room details separately
+        const { data: roomDetails, error: roomError } = await supabase
+          .from('rooms')
+          .select('*')
+          .eq('id', roomAssignment.room_id)
+          .single();
+
+        if (roomDetails && !roomError) {
+          assignment = {
+            ...roomAssignment,
+            rooms: roomDetails
+          };
+        }
+      }
 
       console.log('Room assignment:', assignment);
       console.log('Assignment error:', assignError);
